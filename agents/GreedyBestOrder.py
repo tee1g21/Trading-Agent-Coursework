@@ -53,7 +53,10 @@ class GreedyBestOrder(TradingCompany):
             print(f"{len(rejected_trades)} rejected trades.")
 
     def propose_schedules(self, trades: List[TimeWindowTrade]) -> ScheduleProposal | None:
+        # sort the trades by latest pickup from earliest to latest,
         trades = sorted(trades, key=lambda t: t.latest_pickup)
+        # initialise the datastructures that represents a vessels info, include the current schedule as we must
+        # continue from that
         schedules = {
             vessel: (vessel.schedule.copy(), [])
             for vessel
@@ -62,13 +65,18 @@ class GreedyBestOrder(TradingCompany):
 
         total_profit, vessel_data = self.__propose_schedules(trades, schedules)
 
-        if total_profit <= 0 or not any(map(lambda x: x[2], vessel_data.values())):
+        # if no vessel wants to make a trade, just return none
+        if not any(map(lambda x: x[2], vessel_data.values())):
             return None
 
+        # extract the schedule item from the vessel data tuple
         schedule_proposal = {vessel: schedule for vessel, (_, schedule, _) in vessel_data.items()}
 
         trade_values = {}
         for _, (vessel_profit, _, trades) in vessel_data.items():
+            # assume all trades in a chain of trades share an equal share of the profit
+            # this needs to be fixed by evaluating profit on a per-contract level instead of a per-schedule level
+            # though that creates other issues that also need to be solved like cost allocation
             trade_values.update({
                 trade: vessel_profit/len(trades)
                 for trade in trades
@@ -78,32 +86,55 @@ class GreedyBestOrder(TradingCompany):
 
     def __propose_schedules(self,
                             trades: List[TimeWindowTrade],
-                            schedules: Dict[VesselWithEngine, Tuple[Schedule, List[TimeWindowTrade]]],
+                            # similar to the return type
+                            # a dict of vessels to pairs of that vessels schedule and all new trades
+                            schedules: Dict[VesselWithEngine, Tuple[Schedule, List[TimeWindowTrade]]]
+                            # this datastructures is fucked but
+                            # ( total profit,
+                            #     dict[ key: vessel
+                            #           value: (
+                            #                      total vesel profit,
+                            #                      vessel schedule,
+                            #                      new trades for this vessel
+                            #                  )
+                            #         ]
+                            # )
                             ) -> Tuple[int,
                                        Dict[VesselWithEngine, Tuple[int,
                                                                     Schedule,
                                                                     List[TimeWindowTrade]]]]:
         if len(trades) == 0:
+            # base case, there are no more trades to consider
+
+            # make a map of vessels, to the total profit of their schedule, the schedule, and all trades
             vessel_profits = {
                 vessel: (self.calculate_schedule_cost(schedule, vessel), schedule, trades)
                 for vessel, (schedule, trades)
                 in schedules.items()
             }
+            # return the sum of all vesel profits as well as the vessel info map
             return sum(map(lambda x: x[0], vessel_profits.values())), vessel_profits
 
+        # consider all options for the current trade
+
+        # option of not accepting this trade
         options = [self.__propose_schedules(trades[1:], schedules)]
         for vessel in self._fleet:
+            # try to assign the contract to each vesel
+            # copy the datastructures to prevent weird shared ref errors
             schedules_copy = GreedyBestOrder.__copy_schedule_data(schedules)
 
             schedules_copy[vessel][0].add_transportation(trades[0])
             schedules_copy[vessel][1].append(trades[0])
 
+            # ensure the vessel can conduct the trade, skip if it can't
             if not schedules_copy[vessel][0].verify_schedule():
                 continue
 
             options.append(self.__propose_schedules(trades[1:],
                                                     schedules_copy))
 
+        # pick the best allocation of trades (highest profit)
         best = max(options,
                    key=lambda o: o[0])
 
@@ -124,6 +155,7 @@ class GreedyBestOrder(TradingCompany):
                                 schedule: Schedule,
                                 vessel: VesselWithEngine
                                 ) -> int:
+        # calculate the total cost of the schedule for a vessel
         cost = 0
         for x in schedule:
             if isinstance(x, TravelEvent):
