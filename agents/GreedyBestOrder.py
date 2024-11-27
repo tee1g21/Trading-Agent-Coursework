@@ -8,6 +8,14 @@ from mable.transport_operation import ScheduleProposal, Bid
 from mable.transportation_scheduling import Schedule
 
 
+# TODO: Known bugs
+# trade profit is allocated evenly for all trades in a schedule, this shouldn't be too hard to fix
+# the cost of a vessels already accepted contracts is considered when calculating bids for new contracts,
+#     this causes the current accepted contracts profits to be counted as profit towards new contracts also
+# I think cost calculation is slightly wrong, in theory this bot trading alone should always have a profit of 0 but somehow it manages to have a slight profit so yay?
+# contracts are considered atomically, we should also consider Pickup, Pickup, Drop-off, Drop-off style schedules to reduce travel
+# future contracts are not currently considered, we should account for them and add a bias (or reduced cost) to contracts that end near the start of future contracts we like
+
 # tries to find the best ordering of contracts and ships, ignoring the splitting of contracts and other bots
 class GreedyBestOrder(TradingCompany):
     def __init__(self, fleet, name):
