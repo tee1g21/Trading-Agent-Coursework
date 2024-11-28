@@ -212,9 +212,11 @@ class GreedyBestOrder(TradingCompany):
         cost = 0
         for x in schedule:
             if isinstance(x, TravelEvent):
-                cost += vessel.get_laden_consumption(self.headquarters.get_network_distance(x.location.origin,
-                                                                                            x.location.destination) / vessel.speed,
-                                                     vessel.speed)
+                cost += vessel.get_ballast_consumption(
+                    vessel.get_travel_time(
+                        self.headquarters.get_network_distance(x.location.origin_port,
+                                                               x.location.destination_port)),
+                    vessel.speed)
             elif isinstance(x, CargoTransferEvent):
                 cost += vessel.get_loading_consumption(vessel.get_loading_time(x.trade.cargo_type, x.trade.amount))
 
