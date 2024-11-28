@@ -28,7 +28,10 @@ class GreedyBestOrder(TradingCompany):
 
     def inform(self, trades, *args, **kwargs):
         for trade in trades:
-            self.future_trades.add(trade)
+            try:
+                self.future_trades.remove(trade)
+            except KeyError:
+                pass
 
         print('---auction start----')
         proposed_scheduling = self.propose_schedules(trades)
@@ -108,11 +111,14 @@ class GreedyBestOrder(TradingCompany):
             # base case, there are no more trades to consider
 
             vessels_trades = {}
-            total_cost = 0
+            total_schedules_cost = 0
+            total_contracts_cost = 0
+            total_contracts = 0
             for vessel, (schedule, vessel_trades) in schedules.items():
                 if len(vessel_trades) == 0:
                     vessels_trades[vessel] = (schedule, [])
                     continue
+                total_contracts += len(vessel_trades)
 
                 contract_costs = []
                 total_contract_cost = 0
@@ -133,8 +139,17 @@ class GreedyBestOrder(TradingCompany):
                                           contract_costs))
 
                 vessels_trades[vessel] = (schedule, contract_costs)
-                total_cost += total_schedule_cost
-            return total_cost, vessels_trades
+                total_schedules_cost += total_schedule_cost
+                total_contracts_cost += total_contract_cost
+            if total_contracts == 0:
+                return 0, vessels_trades
+
+            # I think this is an okay heuristic for the total value of a trade
+            # higher unavoidable cost (pickup + movement + drop-off) is better (total profit is dependent on this)
+            # lower total contract cost is better (schedule / contracts = 0 when we are 100% efficient) and we want to be as close to this as possible
+            # divide by the number of trades, less trades for the same profit opportunity is better
+            trade_value_efficiency = (pow(total_schedules_cost, 2) / total_contracts_cost) / total_contracts
+            return trade_value_efficiency, vessels_trades
 
         # consider all options for the current trade
 
