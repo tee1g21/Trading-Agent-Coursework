@@ -8,10 +8,9 @@ from mable.transport_operation import ScheduleProposal, Bid
 from mable.transportation_scheduling import Schedule
 
 
-# TODO: Known bugs
-# trade profit is allocated evenly for all trades in a schedule, this shouldn't be too hard to fix
+# TODO: Known bugs.
 # the cost of a vessels already accepted contracts is considered when calculating bids for new contracts,
-#     this causes the current accepted contracts profits to be counted as profit towards new contracts also
+#     this causes the current accepted contracts costs to be counted as distributed costs towards new contracts also
 # I think cost calculation is slightly wrong, in theory this bot trading alone should always have a profit of 0 but somehow it manages to have a slight profit so yay?
 # contracts are considered atomically, we should also consider Pickup, Pickup, Drop-off, Drop-off style schedules to reduce travel
 # future contracts are not currently considered, we should account for them and add a bias (or reduced cost) to contracts that end near the start of future contracts we like
@@ -29,7 +28,10 @@ class GreedyBestOrder(TradingCompany):
 
     def inform(self, trades, *args, **kwargs):
         for trade in trades:
-            self.future_trades.add(trade)
+            try:
+                self.future_trades.remove(trade)
+            except KeyError:
+                pass
 
         print('---auction start----')
         proposed_scheduling = self.propose_schedules(trades)
@@ -71,26 +73,20 @@ class GreedyBestOrder(TradingCompany):
             in self._fleet
         }
 
-        total_profit, vessel_data = self.__propose_schedules(trades, schedules)
+        _, vessel_data = self.__propose_schedules(trades, schedules)
 
-        # if no vessel wants to make a trade, just return none
-        if not any(map(lambda x: x[2], vessel_data.values())):
-            return None
+        # restructure data as required for SP
+        schedules = {}
+        trades = []
+        costs = {}
 
-        # extract the schedule item from the vessel data tuple
-        schedule_proposal = {vessel: schedule for vessel, (_, schedule, _) in vessel_data.items()}
+        for vessel, (schedule, vessel_trades) in vessel_data.items():
+            schedules[vessel] = schedule
+            for trade, cost in vessel_trades:
+                trades.append(trade)
+                costs[trade] = cost
 
-        trade_values = {}
-        for _, (vessel_profit, _, trades) in vessel_data.items():
-            # assume all trades in a chain of trades share an equal share of the profit
-            # this needs to be fixed by evaluating profit on a per-contract level instead of a per-schedule level
-            # though that creates other issues that also need to be solved like cost allocation
-            trade_values.update({
-                trade: vessel_profit/len(trades)
-                for trade in trades
-            })
-
-        return ScheduleProposal(schedule_proposal, list(trade_values.keys()), trade_values)
+        return ScheduleProposal(schedules, trades, costs)
 
     def __propose_schedules(self,
                             trades: List[TimeWindowTrade],
@@ -107,21 +103,53 @@ class GreedyBestOrder(TradingCompany):
                             #                  )
                             #         ]
                             # )
-                            ) -> Tuple[int,
-                                       Dict[VesselWithEngine, Tuple[int,
-                                                                    Schedule,
-                                                                    List[TimeWindowTrade]]]]:
+                            ) -> Tuple[float,
+                                       Dict[VesselWithEngine, Tuple[Schedule,
+                                                                    List[Tuple[TimeWindowTrade,
+                                                                               float]]]]]:
         if len(trades) == 0:
             # base case, there are no more trades to consider
 
-            # make a map of vessels, to the total profit of their schedule, the schedule, and all trades
-            vessel_profits = {
-                vessel: (self.calculate_schedule_cost(schedule, vessel), schedule, trades)
-                for vessel, (schedule, trades)
-                in schedules.items()
-            }
-            # return the sum of all vesel profits as well as the vessel info map
-            return sum(map(lambda x: x[0], vessel_profits.values())), vessel_profits
+            vessels_trades = {}
+            total_schedules_cost = 0
+            total_contracts_cost = 0
+            total_contracts = 0
+            for vessel, (schedule, vessel_trades) in schedules.items():
+                if len(vessel_trades) == 0:
+                    vessels_trades[vessel] = (schedule, [])
+                    continue
+                total_contracts += len(vessel_trades)
+
+                contract_costs = []
+                total_contract_cost = 0
+                for trade in vessel_trades:
+                    contract_cost = self.calculate_contract_cost(trade, vessel)
+                    total_contract_cost += contract_cost
+                    contract_costs.append((trade, contract_cost))
+
+                total_schedule_cost = self.__calculate_schedule_cost(schedule, vessel)
+                distributed_cost = (total_schedule_cost - total_contract_cost) / len(vessel_trades)
+
+                # guard in case of bugs
+                if distributed_cost <= 0:
+                    distributed_cost = 0
+
+                # add distributed costs to all contracts
+                contract_costs = list(map(lambda trade_data: (trade_data[0], trade_data[1] + distributed_cost),
+                                          contract_costs))
+
+                vessels_trades[vessel] = (schedule, contract_costs)
+                total_schedules_cost += total_schedule_cost
+                total_contracts_cost += total_contract_cost
+            if total_contracts == 0:
+                return 0, vessels_trades
+
+            # I think this is an okay heuristic for the total value of a trade
+            # higher unavoidable cost (pickup + movement + drop-off) is better (total profit is dependent on this)
+            # lower total contract cost is better (schedule / contracts = 0 when we are 100% efficient) and we want to be as close to this as possible
+            # divide by the number of trades, less trades for the same profit opportunity is better
+            trade_value_efficiency = (pow(total_schedules_cost, 2) / total_contracts_cost) / total_contracts
+            return trade_value_efficiency, vessels_trades
 
         # consider all options for the current trade
 
@@ -159,17 +187,36 @@ class GreedyBestOrder(TradingCompany):
             in data.items()
         }
 
-    def calculate_schedule_cost(self,
-                                schedule: Schedule,
+    def calculate_contract_cost(self,
+                                contract: TimeWindowTrade,
                                 vessel: VesselWithEngine
-                                ) -> int:
+                                ) -> float:
+        return (
+            # loading cost
+            vessel.get_loading_consumption(vessel.get_loading_time(contract.cargo_type, contract.amount)) +
+            # moving cost
+            vessel.get_ballast_consumption(
+                vessel.get_travel_time(
+                    self.headquarters.get_network_distance(contract.origin_port,
+                                                           contract.destination_port)),
+                vessel.speed) +
+            # unloading cost
+            vessel.get_unloading_consumption(vessel.get_loading_time(contract.cargo_type, contract.amount))
+        )
+
+    def __calculate_schedule_cost(self,
+                                  schedule: Schedule,
+                                  vessel: VesselWithEngine
+                                  ) -> int:
         # calculate the total cost of the schedule for a vessel
         cost = 0
         for x in schedule:
             if isinstance(x, TravelEvent):
-                cost += vessel.get_laden_consumption(self.headquarters.get_network_distance(x.location.origin,
-                                                                                            x.location.destination) / vessel.speed,
-                                                     vessel.speed)
+                cost += vessel.get_ballast_consumption(
+                    vessel.get_travel_time(
+                        self.headquarters.get_network_distance(x.location.origin_port,
+                                                               x.location.destination_port)),
+                    vessel.speed)
             elif isinstance(x, CargoTransferEvent):
                 cost += vessel.get_loading_consumption(vessel.get_loading_time(x.trade.cargo_type, x.trade.amount))
 
