@@ -1,2 +1,11 @@
-**/metrics_competition_*.json
 **/__pychache__/
+/.venv/
+/.idea/
+
+**/metrics_competition_*.json
+**/port_cargo_weight_distribution.csv
+**/port_trade_frequency_distribution.csv
+**/ports.csv
+**/precomputed_routes.pickle
+**/routing_graph_world_mask.pkl
+**/time_transition_distribution.csv

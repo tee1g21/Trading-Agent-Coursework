@@ -191,9 +191,10 @@ class GreedyBestOrder(TradingCompany):
                                 contract: TimeWindowTrade,
                                 vessel: VesselWithEngine
                                 ) -> float:
+        load_unload_time = vessel.get_loading_time(contract.cargo_type, contract.amount)
         return (
             # loading cost
-            vessel.get_loading_consumption(vessel.get_loading_time(contract.cargo_type, contract.amount)) +
+            vessel.get_loading_consumption(load_unload_time) +
             # moving cost
             vessel.get_ballast_consumption(
                 vessel.get_travel_time(
@@ -201,7 +202,7 @@ class GreedyBestOrder(TradingCompany):
                                                            contract.destination_port)),
                 vessel.speed) +
             # unloading cost
-            vessel.get_unloading_consumption(vessel.get_loading_time(contract.cargo_type, contract.amount))
+            vessel.get_unloading_consumption(load_unload_time)
         )
 
     def __calculate_schedule_cost(self,
@@ -219,5 +220,4 @@ class GreedyBestOrder(TradingCompany):
                     vessel.speed)
             elif isinstance(x, CargoTransferEvent):
                 cost += vessel.get_loading_consumption(vessel.get_loading_time(x.trade.cargo_type, x.trade.amount))
-
         return cost
