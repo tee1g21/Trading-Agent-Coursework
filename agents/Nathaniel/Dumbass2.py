@@ -5,7 +5,7 @@ from typing import List, Dict
 from mable.cargo_bidding import TradingCompany
 from mable.extensions.fuel_emissions import VesselWithEngine
 from mable.shipping_market import Trade, Contract
-from mable.simulation_space import OnJourney
+from mable.simulation_space import OnJourney, Location
 from mable.transport_operation import ScheduleProposal, Vessel
 from mable.transportation_scheduling import Schedule
 
@@ -101,6 +101,18 @@ class ValuedScheduleProposal:
         return ScheduleProposal(agg_schedules, agg_trades, agg_costs)
 
 
+def fmt_location(location: Location) -> str:
+    return f"({location.x}, {location.y})"
+
+
+def fmt_trade(trade: Trade) -> str:
+    return f"{fmt_location(trade.origin_port)} => {fmt_location(trade.destination_port)}"
+
+
+def fmt_vessel(vessel: Vessel) -> str:
+    return f"{vessel.name} @ {fmt_location(vessel.location)}"
+
+
 class Dumbass2(TradingCompany):
     def __init__(self, fleet, name):
         super().__init__(fleet, name)
@@ -113,16 +125,19 @@ class Dumbass2(TradingCompany):
         else:
             print(f'{self.name} won trades:')
             for contract in contracts:
-                print(f'\t[{contract.trade.origin_port} => {contract.trade.destination_port}]: {contract.payment}')
+                print(f'\t[{fmt_trade(contract.trade)}]: {contract.payment}')
 
         scheduling_proposal = self.propose_schedules(contracts, True)
 
-        if len(scheduling_proposal.scheduled_trades):
+        if len(scheduling_proposal.scheduled_trades) == 0:
             print("no contracts scheduled")
-            for vessel in self.fleet:
-                trades = set(x[1] for x in scheduling_proposal.schedules[vessel].get_simple_schedule())
-                trades_str = ','.join([f"[{trade.origin_port} => {trade.destination_port}]" for trade in trades])
-                print(f"\t{vessel.name}: {trades_str}")
+        else:
+            print(f"{len(scheduling_proposal.scheduled_trades)} new trades scheduled")
+
+        for vessel in self.fleet:
+            schedule = scheduling_proposal.schedules[vessel].get_simple_schedule()
+            trades_str = ','.join([f"[{x[0]}, {fmt_trade(x[1])}]" for x in schedule])
+            print(f"\t{fmt_vessel(vessel)}: {trades_str}")
 
         _ = self.apply_schedules(scheduling_proposal.schedules)
 
@@ -151,7 +166,7 @@ class Dumbass2(TradingCompany):
             else:
                 print("----- bids -----")
                 for trade, cost in aggregate.costs.items():
-                    print(f"[{trade.origin_port} => {trade.destination_port}]: {cost}")
+                    print(f"[{fmt_trade(trade)}]: {cost}")
                 print("----------------")
             print(f'time: {stop - start}')
 
