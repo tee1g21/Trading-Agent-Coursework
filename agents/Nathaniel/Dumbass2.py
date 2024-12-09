@@ -3,19 +3,35 @@ import timeit
 from typing import List, Dict
 
 from mable.cargo_bidding import TradingCompany
-from mable.event_management import TravelEvent, CargoTransferEvent
 from mable.extensions.fuel_emissions import VesselWithEngine
-from mable.shipping_market import Trade
-from mable.simulation_space import Location, OnJourney
-from mable.transport_operation import ScheduleProposal
+from mable.shipping_market import Trade, Contract
+from mable.simulation_space import OnJourney
+from mable.transport_operation import ScheduleProposal, Vessel
 from mable.transportation_scheduling import Schedule
+
+
+@dataclasses.dataclass
+class TradeInfo:
+    trade: Trade
+    value: float
+
+    def __init__(
+            self,
+            value: Trade | Contract
+    ):
+        if isinstance(value, Trade):
+            self.trade = value
+            self.value = 0
+        elif isinstance(value, Contract):
+            self.trade = value.trade
+            self.value = value.payment
 
 
 @dataclasses.dataclass
 class SubScheduleProposal:
     schedule: Schedule
     start_price: float
-    extra_trades: List[Trade]
+    extra_trades: List[TradeInfo]
 
     def copy(self):
         return SubScheduleProposal(
@@ -55,11 +71,12 @@ class ValuedScheduleProposal:
     @classmethod
     def calc_heuristic(
             cls,
-            proposals: Dict[VesselWithEngine, ValuedSubScheduleProposal]
+            proposals: Dict[VesselWithEngine, ValuedSubScheduleProposal],
+            td_cost: float = 0
     ):
         return cls(
             proposals=proposals,
-            heuristic_sum=sum(map(lambda x: x.heuristic, proposals.values()))
+            heuristic_sum=sum(map(lambda x: x.heuristic, proposals.values())) + td_cost
         )
 
     def copy(self):
@@ -72,13 +89,13 @@ class ValuedScheduleProposal:
         )
 
     def aggregate(self) -> ScheduleProposal:
-        agg_schedules = {}
-        agg_trades = []
-        agg_costs = {}
+        agg_schedules: Dict[Vessel, Schedule] = {}
+        agg_trades: List[Trade] = []
+        agg_costs: Dict[Trade, float] = {}
 
         for vessel, valued_proposal in self.proposals.items():
             agg_schedules[vessel] = valued_proposal.proposal.schedule
-            agg_trades += valued_proposal.proposal.extra_trades
+            agg_trades += [trade_info.trade for trade_info in valued_proposal.proposal.extra_trades]
             agg_costs.update(valued_proposal.costs)
 
         return ScheduleProposal(agg_schedules, agg_trades, agg_costs)
@@ -92,12 +109,21 @@ class Dumbass2(TradingCompany):
     def receive(self, contracts, auction_ledger=None, *args, **kwargs):
         if len(contracts) == 0:
             print("no contracts won")
+            return
         else:
             print(f'{self.name} won trades:')
             for contract in contracts:
                 print(f'\t[{contract.trade.origin_port} => {contract.trade.destination_port}]: {contract.payment}')
-        trades = [one_contract.trade for one_contract in contracts]
-        scheduling_proposal = self.propose_schedules(trades, True)
+
+        scheduling_proposal = self.propose_schedules(contracts, True)
+
+        if len(scheduling_proposal.scheduled_trades):
+            print("no contracts scheduled")
+            for vessel in self.fleet:
+                trades = set(x[1] for x in scheduling_proposal.schedules[vessel].get_simple_schedule())
+                trades_str = ','.join([f"[{trade.origin_port} => {trade.destination_port}]" for trade in trades])
+                print(f"\t{vessel.name}: {trades_str}")
+
         _ = self.apply_schedules(scheduling_proposal.schedules)
 
     def propose_schedules(self, trades, strict=False) -> ScheduleProposal:
@@ -109,8 +135,13 @@ class Dumbass2(TradingCompany):
             for vessel in self.fleet
         }
 
+        trades = [
+            TradeInfo(trade)
+            for trade in trades
+        ]
+
         start = timeit.default_timer()
-        evaluated_schedules = self.__propose_schedules(trades, start_schedules, strict)
+        evaluated_schedules = self.__propose_schedules(trades, start_schedules, 0, strict)
         stop = timeit.default_timer()
         aggregate = evaluated_schedules.aggregate()
 
@@ -128,27 +159,30 @@ class Dumbass2(TradingCompany):
 
     def __propose_schedules(
             self,
-            trades: List[Trade],
+            trades: List[TradeInfo],
             schedules: Dict[VesselWithEngine, SubScheduleProposal],
+            td_cost: float,
             strict: bool
     ) -> ValuedScheduleProposal:
         if len(trades) == 0:
-            return ValuedScheduleProposal.calc_heuristic({
-                vessel: self.evaluate_proposal(vessel, proposal, strict)
-                for vessel, proposal in schedules.items()
-            })
+            return ValuedScheduleProposal.calc_heuristic(
+                {
+                    vessel: self.evaluate_proposal(vessel, proposal, strict)
+                    for vessel, proposal in schedules.items()
+                },
+                td_cost)
 
         current_trade = trades[0]
         rest_trades = trades[1:]
 
-        best_option = self.__propose_schedules(rest_trades, schedules, strict)
+        best_option = self.__propose_schedules(rest_trades, schedules, td_cost - current_trade.value, strict)
         for vessel, proposal in schedules.items():
             old_schedule = proposal.schedule.copy()
             proposal.extra_trades.append(current_trade)
 
-            for option in Dumbass2.generate_options(current_trade, proposal.schedule):
+            for option in Dumbass2.generate_options(current_trade.trade, proposal.schedule):
                 proposal.schedule = option
-                evaluation = self.__propose_schedules(rest_trades, schedules, strict)
+                evaluation = self.__propose_schedules(rest_trades, schedules, td_cost, strict)
                 if evaluation.heuristic_sum > best_option.heuristic_sum:
                     best_option = evaluation.copy()
 
@@ -195,7 +229,10 @@ class Dumbass2(TradingCompany):
         return ValuedSubScheduleProposal(
             proposal=proposal,
             costs={},
-            heuristic=-self.calculate_schedule_cost(vessel, proposal.schedule)
+            heuristic=(
+                    sum(trade.value for trade in proposal.extra_trades) -
+                    (self.calculate_schedule_cost(vessel, proposal.schedule) - proposal.start_price)
+            )
         )
 
     def evaluate_proposal_heuristic(
@@ -215,9 +252,9 @@ class Dumbass2(TradingCompany):
 
         trade_costs = {}
         trade_cost_total = 0
-        for trade in proposal.extra_trades:
-            trade_cost = self.calculate_trade_cost(vessel, trade)
-            trade_costs[trade] = trade_cost
+        for trade_info in proposal.extra_trades:
+            trade_cost = self.calculate_trade_cost(vessel, trade_info.trade) - trade_info.value
+            trade_costs[trade_info.trade] = trade_cost
             trade_cost_total += trade_cost
 
         distributed_cost = (schedule_cost_delta - trade_cost_total) / len(proposal.extra_trades)
@@ -242,14 +279,14 @@ class Dumbass2(TradingCompany):
         load_unload_time = vessel.get_loading_time(trade.cargo_type, trade.amount)
         return (
             # loading cost
-            vessel.get_loading_consumption(load_unload_time) +
-            # moving cost
-            vessel.get_laden_consumption(
-                vessel.get_travel_time(
-                    self.headquarters.get_network_distance(trade.origin_port, trade.destination_port)),
-                vessel.speed) +
-            # unloading cost
-            vessel.get_unloading_consumption(load_unload_time)
+                vessel.get_loading_consumption(load_unload_time) +
+                # moving cost
+                vessel.get_laden_consumption(
+                    vessel.get_travel_time(
+                        self.headquarters.get_network_distance(trade.origin_port, trade.destination_port)),
+                    vessel.speed) +
+                # unloading cost
+                vessel.get_unloading_consumption(load_unload_time)
         )
 
     def calculate_schedule_cost(

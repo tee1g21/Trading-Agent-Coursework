@@ -1,6 +1,5 @@
 from mable.examples import environment, fleets
 
-from agents.Nathaniel.Dumbass import Dumbass
 from agents.Nathaniel.Dumbass2 import Dumbass2
 from agents.Tom.SuperCoolCompany import SuperCoolCompany
 
