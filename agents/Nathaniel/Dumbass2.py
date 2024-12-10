@@ -101,33 +101,44 @@ class ValuedScheduleProposal:
         return ScheduleProposal(agg_schedules, agg_trades, agg_costs)
 
 
-def fmt_location(location: Location) -> str:
-    return f"({location.x}, {location.y})"
+def fmt_location(location: Location | OnJourney) -> str:
+    if isinstance(location, OnJourney):
+        return f"DST: ({location.destination.x}, {location.destination.y})"
+
+    return f"{location.name}: ({location.x}, {location.y})"
 
 
 def fmt_trade(trade: Trade) -> str:
-    return f"{fmt_location(trade.origin_port)} => {fmt_location(trade.destination_port)}"
+    return f"[{fmt_location(trade.origin_port)}] => [{fmt_location(trade.destination_port)}]"
 
 
 def fmt_vessel(vessel: Vessel) -> str:
-    return f"{vessel.name} @ {fmt_location(vessel.location)}"
+    return f"[{vessel.name} @ {fmt_location(vessel.location)}]"
 
 
 class Dumbass2(TradingCompany):
     def __init__(self, fleet, name):
         super().__init__(fleet, name)
-        self.profit_factor = 1.4
+        self.profit_factor = 1.6
+        self.num_bids_last = 0
 
     def receive(self, contracts, auction_ledger=None, *args, **kwargs):
         if len(contracts) == 0:
             print("no contracts won")
-            return
         else:
             print(f'{self.name} won trades:')
             for contract in contracts:
-                print(f'\t[{fmt_trade(contract.trade)}]: {contract.payment}')
+                print(f'\t{fmt_trade(contract.trade)}: {contract.payment}')
 
-        scheduling_proposal = self.propose_schedules(contracts, True)
+        if self.num_bids_last != 0:
+            wl_th = 0.5  # fractional threshold to increase or decrease profit factor
+            wl_score = (len(contracts) / self.num_bids_last) - wl_th
+            self.profit_factor += self.profit_factor * self.get_heat() * wl_score
+            if self.profit_factor < 1:
+                self.profit_factor = 1
+        print(f"profit factor: {self.profit_factor}")
+
+        scheduling_proposal = self.propose_schedules(contracts, False)
 
         if len(scheduling_proposal.scheduled_trades) == 0:
             print("no contracts scheduled")
@@ -137,11 +148,18 @@ class Dumbass2(TradingCompany):
         for vessel in self.fleet:
             schedule = scheduling_proposal.schedules[vessel].get_simple_schedule()
             trades_str = ','.join([f"[{x[0]}, {fmt_trade(x[1])}]" for x in schedule])
+            if len(trades_str) == 0:
+                trades_str = "None"
             print(f"\t{fmt_vessel(vessel)}: {trades_str}")
+
+        print(f"{len(contracts) - len(scheduling_proposal.scheduled_trades)} trades rejected")
 
         _ = self.apply_schedules(scheduling_proposal.schedules)
 
-    def propose_schedules(self, trades, strict=False) -> ScheduleProposal:
+    def propose_schedules(self, trades, for_bids=True) -> ScheduleProposal:
+        if for_bids:
+            self.num_bids_last = 0
+
         start_schedules = {
             vessel: SubScheduleProposal(
                 vessel.schedule,
@@ -156,19 +174,20 @@ class Dumbass2(TradingCompany):
         ]
 
         start = timeit.default_timer()
-        evaluated_schedules = self.__propose_schedules(trades, start_schedules, 0, strict)
+        evaluated_schedules = self.__propose_schedules(trades, start_schedules, 0, for_bids)
         stop = timeit.default_timer()
         aggregate = evaluated_schedules.aggregate()
 
-        if not strict:
+        if for_bids:
             if len(aggregate.costs) == 0:
                 print("no bids")
             else:
                 print("----- bids -----")
                 for trade, cost in aggregate.costs.items():
-                    print(f"[{fmt_trade(trade)}]: {cost}")
+                    print(f"{fmt_trade(trade)}: {cost}")
                 print("----------------")
             print(f'time: {stop - start}')
+            self.num_bids_last = len(aggregate.scheduled_trades)
 
         return aggregate
 
@@ -177,12 +196,12 @@ class Dumbass2(TradingCompany):
             trades: List[TradeInfo],
             schedules: Dict[VesselWithEngine, SubScheduleProposal],
             td_cost: float,
-            strict: bool
+            for_bids: bool
     ) -> ValuedScheduleProposal:
         if len(trades) == 0:
             return ValuedScheduleProposal.calc_heuristic(
                 {
-                    vessel: self.evaluate_proposal(vessel, proposal, strict)
+                    vessel: self.evaluate_proposal(vessel, proposal, for_bids)
                     for vessel, proposal in schedules.items()
                 },
                 td_cost)
@@ -190,14 +209,14 @@ class Dumbass2(TradingCompany):
         current_trade = trades[0]
         rest_trades = trades[1:]
 
-        best_option = self.__propose_schedules(rest_trades, schedules, td_cost - current_trade.value, strict)
+        best_option = self.__propose_schedules(rest_trades, schedules, td_cost - current_trade.value, for_bids)
         for vessel, proposal in schedules.items():
             old_schedule = proposal.schedule.copy()
             proposal.extra_trades.append(current_trade)
 
             for option in Dumbass2.generate_options(current_trade.trade, proposal.schedule):
                 proposal.schedule = option
-                evaluation = self.__propose_schedules(rest_trades, schedules, td_cost, strict)
+                evaluation = self.__propose_schedules(rest_trades, schedules, td_cost, for_bids)
                 if evaluation.heuristic_sum > best_option.heuristic_sum:
                     best_option = evaluation.copy()
 
@@ -223,18 +242,20 @@ class Dumbass2(TradingCompany):
                 schedule_copy.add_transportation(trade, idx_pick_up, idx_drop_off)
                 if schedule_copy.verify_schedule():
                     options.append(schedule_copy)
+        if len(options) > 1:
+            print("Multiple options")
         return options
 
     def evaluate_proposal(
             self,
             vessel: VesselWithEngine,
             proposal: SubScheduleProposal,
-            strict: bool
+            for_bids: bool
     ) -> ValuedSubScheduleProposal:
-        if strict:
-            return self.evaluate_proposal_strict(vessel, proposal)
-        else:
+        if for_bids:
             return self.evaluate_proposal_heuristic(vessel, proposal)
+        else:
+            return self.evaluate_proposal_strict(vessel, proposal)
 
     def evaluate_proposal_strict(
             self,
@@ -269,7 +290,7 @@ class Dumbass2(TradingCompany):
         trade_cost_total = 0
         for trade_info in proposal.extra_trades:
             trade_cost = self.calculate_trade_cost(vessel, trade_info.trade) - trade_info.value
-            trade_costs[trade_info.trade] = trade_cost
+            trade_costs[trade_info.trade] = trade_cost * self.profit_factor
             trade_cost_total += trade_cost
 
         distributed_cost = (schedule_cost_delta - trade_cost_total) / len(proposal.extra_trades)
@@ -334,3 +355,10 @@ class Dumbass2(TradingCompany):
                 vessel.get_loading_time(trade.cargo_type, trade.amount))
             current_location = dst
         return total_cost
+
+    def get_heat(self) -> float:
+        max_time = 4000
+        min_heat = 0.1
+
+        heat_ratio = (max_time - min(self.headquarters.current_time, max_time)) / max_time
+        return max(heat_ratio, min_heat)
