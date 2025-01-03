@@ -5,7 +5,7 @@ from typing import List, Dict
 from mable.cargo_bidding import TradingCompany
 from mable.extensions.fuel_emissions import VesselWithEngine
 from mable.shipping_market import Trade, Contract
-from mable.simulation_space import OnJourney, Location
+from mable.simulation_space.universe import OnJourney, Location
 from mable.transport_operation import ScheduleProposal, Vessel
 from mable.transportation_scheduling import Schedule
 
