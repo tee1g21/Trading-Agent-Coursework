@@ -1,13 +1,11 @@
-from agents.testing.test import PerformanceTest
-import agents.testing.utils as tutils
-
-from agents.Nathaniel.Dumbass2 import Dumbass2
-from agents.Tom.SuperCoolCompany import SuperCoolCompany
+import json
 
 from loguru import logger
 
-import json
-
+import agents.testing.utils as tutils
+from agents.Nathaniel.Dumbass2 import Dumbass2
+from agents.testing.test import PerformanceTest
+from agents.Tom.SuperCoolCompany import SuperCoolCompany
 
 logger.info("Creating Performance Test")
 performance_test = PerformanceTest()
