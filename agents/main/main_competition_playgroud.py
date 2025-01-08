@@ -1,6 +1,6 @@
 from mable.examples import environment, fleets
 
-from agents.Nathaniel.Dumbass2 import Dumbass2
+from agents.Nathaniel.Dumbass3 import Dumbass3
 from agents.Tom.SuperCoolCompany import SuperCoolCompany
 
 
@@ -13,7 +13,7 @@ def build_specification():
     my_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
     specifications_builder.add_company(SuperCoolCompany.Data(SuperCoolCompany, my_fleet, SuperCoolCompany.__name__))
     my_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
-    specifications_builder.add_company(Dumbass2.Data(Dumbass2, my_fleet, Dumbass2.__name__))
+    specifications_builder.add_company(Dumbass3.Data(Dumbass3, my_fleet, Dumbass3.__name__))
     # my_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
     # specifications_builder.add_company(Dumbass.Data(Dumbass, my_fleet, Dumbass.__name__))
     # arch_enemy_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)

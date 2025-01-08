@@ -160,23 +160,26 @@ class Dumbass2(TradingCompany):
         if for_bids:
             self.num_bids_last = 0
 
-        start_schedules = {
-            vessel: SubScheduleProposal(
-                vessel.schedule,
-                self.calculate_schedule_cost(vessel, vessel.schedule),
-                [])
-            for vessel in self.fleet
-        }
+        start_time = timeit.default_timer()
+        if len(trades) <= 5:
+            start_schedules = {
+                vessel: SubScheduleProposal(
+                    vessel.schedule,
+                    self.calculate_schedule_cost(vessel, vessel.schedule),
+                    [])
+                for vessel in self.fleet
+            }
 
-        trades = [
-            TradeInfo(trade)
-            for trade in trades
-        ]
-
-        start = timeit.default_timer()
-        evaluated_schedules = self.__propose_schedules(trades, start_schedules, 0, for_bids)
-        stop = timeit.default_timer()
-        aggregate = evaluated_schedules.aggregate()
+            trades = [
+                TradeInfo(trade)
+                for trade in trades
+            ]
+            evaluated_schedules = self.__propose_schedules(trades, start_schedules, 0, for_bids)
+            aggregate = evaluated_schedules.aggregate()
+        else:
+            # backup scheduler
+            aggregate = ScheduleProposal()
+        stop_time = timeit.default_timer()
 
         if for_bids:
             if len(aggregate.costs) == 0:
@@ -186,7 +189,7 @@ class Dumbass2(TradingCompany):
                 for trade, cost in aggregate.costs.items():
                     print(f"{fmt_trade(trade)}: {cost}")
                 print("----------------")
-            print(f'time: {stop - start}')
+            print(f'time: {stop_time - start_time}')
             self.num_bids_last = len(aggregate.scheduled_trades)
 
         return aggregate
@@ -242,8 +245,6 @@ class Dumbass2(TradingCompany):
                 schedule_copy.add_transportation(trade, idx_pick_up, idx_drop_off)
                 if schedule_copy.verify_schedule():
                     options.append(schedule_copy)
-        if len(options) > 1:
-            print("Multiple options")
         return options
 
     def evaluate_proposal(

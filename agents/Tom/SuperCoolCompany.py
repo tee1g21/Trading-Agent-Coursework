@@ -1,8 +1,25 @@
 from mable.cargo_bidding import TradingCompany
+from mable.simulation_space.universe import OnJourney
 from mable.transport_operation import ScheduleProposal
 
 import attrs
 from marshmallow import fields
+
+
+# -------------------[PRINT FORMATTERS]--------------------
+def fmt_location(location) -> str:
+    if isinstance(location, OnJourney):
+        return f"DST: ({location.destination.x}, {location.destination.y})"
+
+    return f"{location.name}: ({location.x}, {location.y})"
+
+
+def fmt_trade(trade) -> str:
+    return f"[{fmt_location(trade.origin_port)}] => [{fmt_location(trade.destination_port)}]"
+
+
+def fmt_vessel(vessel) -> str:
+    return f"[{vessel.name} @ {fmt_location(vessel.location)}]"
 
 
 class SuperCoolCompany(TradingCompany):
@@ -26,8 +43,26 @@ class SuperCoolCompany(TradingCompany):
     def pre_inform(self, trades, time):
         return super().pre_inform(trades, time)
     
-    def inform(self, trades, *args, **kwargs):
-        return super().inform(trades, *args, **kwargs)
+    def inform(
+            self,
+            trades,
+            *args, **kwargs
+    ):
+        """
+        auction started, propose bids
+        """
+
+        bids = super().inform(trades, *args, **kwargs)
+
+        if len(bids) == 0:
+            self.log("no bids")
+        else:
+            self.log("----- bids -----")
+            for bid in bids:
+                self.log(f"{fmt_trade(bid.trade)}: {bid.amount}")
+            self.log("----------------")
+
+        return bids
     
     def receive(self, contracts, auction_ledger=None, *args, **kwargs):
         return super().receive(contracts, auction_ledger, *args, **kwargs)
@@ -77,3 +112,9 @@ class SuperCoolCompany(TradingCompany):
                     competing_vessels[company] = closest_vessel
                     
         return competing_vessels
+
+    def log(
+            self,
+            text: str
+    ):
+        print(f"{self.name} # {text}")
