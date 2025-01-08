@@ -48,6 +48,12 @@ class PerformanceTest():
         self.sim: AuctionSimulationEngine | None = None
         self._specifications_builder: FuelSpecsBuilder | None = None
 
+    def set_output_directory(self, dir: str) -> None:
+        self._output_directory = dir
+
+    def get_output_directory(self) -> str:
+        return self._output_directory
+
     def test(self) -> None:
         if not os.path.exists(self._output_directory):
             os.makedirs(self._output_directory)
@@ -71,3 +77,25 @@ class PerformanceTest():
         for observer in observers:
             observer = typing.cast(EventObserver, observer)
             logger.debug(observer)
+
+class TestingEnvironment():
+    
+    def __init__(self):
+        self.all_test_results = []
+    
+    def run_test(self):
+        logger.info("Creating Performance Test")
+        performance_test = PerformanceTest()
+        logger.info("Setup Performance Test")
+        performance_test.setup()
+
+        logger.info("Adding Companies")
+        performance_test.add_company_random_fleet(Dumbass2)
+        performance_test.add_company_random_fleet(SuperCoolCompany)
+
+        logger.info("Running Test")
+        performance_test.test()
+        logger.info("End Performance Test")
+    
+    def print_results(self):
+        pass
