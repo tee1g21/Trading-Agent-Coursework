@@ -30,19 +30,22 @@ class PerformanceTest():
             num_auctions=2,
             fixed_trades=None,
             use_only_precomputed_routes=True
-        )
+        )   
     
-    def add_company_random_fleet(self, company: type[TradingCompany]) -> None:
+    def add_company_random_fleet(self, company: type[TradingCompany], fleet_nums: tuple[int, int, int] = (1,1,1)) -> None:
+        my_fleet = fleets.mixed_fleet(num_suezmax=fleet_nums[0], num_aframax=fleet_nums[1], num_vlcc=fleet_nums[2])
+        self.add_company_with_fleet(company, my_fleet)
+    
+    def add_company_with_fleet(self, company: type[TradingCompany], fleet: list) -> None:
         if not inspect.isclass(company):
             raise TypeError("company must be a class")
         if not issubclass(company, TradingCompany):
             raise TypeError("company must be TradingCompany")
         if self._specifications_builder is None:
-            raise AssertionError("Must run Performancvetest.setup first")
+            raise AssertionError("Must run Performancetest.setup first")
         
-        logger.debug(f"Adding Company {company.__name__}")
-        my_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
-        self._specifications_builder.add_company(company.Data(company, my_fleet, company.__name__))
+        logger.debug(f"Adding Company {{{company.__name__}, {fleet}}}")
+        self._specifications_builder.add_company(company.Data(company, fleet, company.__name__))
 
     def __init__(self):
         self.sim: AuctionSimulationEngine | None = None
