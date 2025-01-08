@@ -33,8 +33,9 @@ metrics = tutils.MableMetrics(out)
 
 # logger.info(metrics)
 
-logger.info(metrics.companies[0])
-logger.info(metrics.companies[1])
+logger.info("Company Results")
+for company in metrics.companies:
+    logger.info(company)
 
 # for i in range(len(metrics.company_names)):
 #     logger.info(f"{i}: {metrics.company_names[str(i)]}")
