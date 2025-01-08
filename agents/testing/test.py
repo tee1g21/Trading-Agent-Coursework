@@ -85,6 +85,18 @@ class TestingEnvironment():
     
     def __init__(self):
         self.all_test_results = []
+        self._test_companies: list[type[TradingCompany]] = []
+        self._test_fleet_combos: list[tuple[int, int, int]] = []
+    
+    def setup_companies(self, companies: list[type[TradingCompany]]):
+        self._test_companies = companies
+    
+    def setup_random_fleets(self, max_suezmax=1, max_aframax=1, max_vlcc=1):
+        self._test_fleet_combos = []
+        for suez_num in range(max_suezmax):
+            for afra_num in range(max_aframax):
+                for vlcc_num in range(max_vlcc):
+                    self._test_fleet_combos.append((suez_num, afra_num, vlcc_num))
     
     def run_test(self):
         logger.info("Creating Performance Test")
