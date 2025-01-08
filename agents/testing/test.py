@@ -1,8 +1,11 @@
 # performance testing
 
 import inspect
+import itertools
 import os
+import random
 import typing
+from multiprocessing.pool import ThreadPool
 
 from loguru import logger
 from mable.cargo_bidding import TradingCompany
@@ -17,16 +20,21 @@ class PerformanceTest:
     _resources = "./resources"
     _output_directory = "./out"
 
-    def setup(self) -> None:
+    def setup(
+        self,
+        trade_occurrence_frequency: int,
+        trades_per_occurrence: int,
+        num_auctions: int,
+    ) -> None:
         if not os.path.exists(self._resources):
             raise ValueError(
                 f"Cannot find Resources Directory relative to {os.path.abspath(os.path.curdir)}"
             )
         self._specifications_builder = environment.get_specification_builder(
             environment_files_path=self._resources,
-            trade_occurrence_frequency=30,
-            trades_per_occurrence=1,
-            num_auctions=2,
+            trade_occurrence_frequency=trade_occurrence_frequency,
+            trades_per_occurrence=trades_per_occurrence,
+            num_auctions=num_auctions,
             fixed_trades=None,
             use_only_precomputed_routes=True,
         )
@@ -70,6 +78,7 @@ class PerformanceTest:
         if not os.path.exists(self._output_directory):
             os.makedirs(self._output_directory)
 
+        logger.debug("Generating Sim")
         self.sim = typing.cast(
             AuctionSimulationEngine,
             environment.generate_simulation(
@@ -81,6 +90,7 @@ class PerformanceTest:
         )
 
         if self.sim:
+            logger.debug("Running Sim")
             self.sim.run()
         else:
             logger.error("No sim to run!")
@@ -101,29 +111,81 @@ class TestingEnvironment:
         self._test_companies: list[type[TradingCompany]] = []
         self._test_fleet_combos: list[tuple[int, int, int]] = []
 
-    def setup_companies(self, companies: list[type[TradingCompany]]):
-        self._test_companies = companies
+    def setup_companies(
+        self, companies: list[type[TradingCompany]] | None, combination_size: int = 2
+    ):
+        if companies:
+            self._test_companies = companies
+        if len(self._test_companies) < combination_size:
+            raise ValueError(
+                "Combination size must be smaller than number of companies"
+            )
+        self._test_company_combination_size = combination_size
 
     def setup_random_fleets(self, max_suezmax=1, max_aframax=1, max_vlcc=1):
         self._test_fleet_combos = []
-        for suez_num in range(max_suezmax):
-            for afra_num in range(max_aframax):
-                for vlcc_num in range(max_vlcc):
+        for suez_num in range(max_suezmax + 1):
+            for afra_num in range(max_aframax + 1):
+                for vlcc_num in range(max_vlcc + 1):
+                    if (suez_num == 0) and (afra_num == 0) and (vlcc_num == 0):
+                        continue
                     self._test_fleet_combos.append((suez_num, afra_num, vlcc_num))
 
-    def run_test(self):
+    def run_tests(self):
+        logger.info("Running Test suite")
+        logger.info("Params:")
+        logger.info(f"Companies: {self._test_companies}")
+        logger.info(f"Fleet numbers: {self._test_fleet_combos}")
+        company_combos: list[tuple[type[TradingCompany], ...]] = list(
+            itertools.combinations(
+                self._test_companies, self._test_company_combination_size
+            )
+        )
+        logger.debug(company_combos)
+        for combo in company_combos:
+            # Each set of tests has a combination of companies
+            # Now we do all the fleets
+            test_cases = []
+
+            fleet_assignments = itertools.product(
+                self._test_fleet_combos, repeat=len(combo)
+            )
+
+            for assignment in fleet_assignments:
+                case = [(company, fleet) for company, fleet in zip(combo, assignment)]
+                test_cases.append(case)
+
+            logger.debug(test_cases)
+
+            testable_cases = random.sample(test_cases, 5)
+
+            # run all the test cases
+            with ThreadPool() as pool:
+                pool.map(self.run_test, testable_cases)
+            # for case in testable_cases:
+            #     self.run_test(case)
+
+    def run_test(
+        self,
+        companies_with_fleets: list[tuple[type[TradingCompany], tuple[int, int, int]]],
+    ):
         logger.info("Creating Performance Test")
         performance_test = PerformanceTest()
         logger.info("Setup Performance Test")
-        performance_test.setup()
+        performance_test.setup(30, 5, 5)
+
+        performance_test.set_output_directory("./out/test")
 
         logger.info("Adding Companies")
-        performance_test.add_company_random_fleet(Dumbass2)
-        performance_test.add_company_random_fleet(SuperCoolCompany)
+        for company in companies_with_fleets:
+            performance_test.add_company_random_fleet(company[0], company[1])
 
         logger.info("Running Test")
         performance_test.test()
         logger.info("End Performance Test")
+
+    def get_test_results(self, dir: str):
+        pass
 
     def print_results(self):
         pass
