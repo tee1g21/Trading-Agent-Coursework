@@ -120,7 +120,7 @@ class TestingEnvironment:
         self._num_auctions: int = 5
 
     def setup_companies(
-        self, companies: list[type[TradingCompany]] | None, combination_size: int = 2
+        self, companies: list[type[TradingCompany]] | None, combination_size: int = 0
     ):
         """Setup the companies for the performance test
 
@@ -133,6 +133,8 @@ class TestingEnvironment:
         """
         if companies:
             self._test_companies = companies
+        if combination_size == 0:
+            combination_size = len(self._test_companies)
         if len(self._test_companies) < combination_size:
             raise ValueError(
                 "Combination size must be smaller than number of companies"
@@ -234,9 +236,11 @@ class TestingEnvironment:
             with open(
                 f"out/test-{datetime.datetime.utcnow().timestamp()}.csv", "w"
             ) as f:
-                f.write(
-                    '"company, fleet_size", "Company_name, fuel_costs, auction_revenue, auction_losses, profits"\n'
-                )
+                f.write('"Company, fleet_size", ')
+                for company in company_combos:
+                    f.write(
+                        f'"{company[0].__name__}, fuel_costs, auction_revenue, auction_losses, profits"\n'
+                    )
 
                 for metric in all_metrics:
                     string = metric.get_csv_string()
