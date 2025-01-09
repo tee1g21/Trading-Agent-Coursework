@@ -155,6 +155,14 @@ class TestingEnvironment:
                         continue
                     self._test_fleet_combos.append((suez_num, afra_num, vlcc_num))
 
+    def reset_fleets(self):
+        """Reset the Fleet numbers for manual modification."""
+        self._test_fleet_combos = []
+
+    def add_fleet_combo(self, suezmax: int, framax: int, vlcc: int):
+        """Add a fleet combination manually."""
+        self._test_fleet_combos.append((suezmax, framax, vlcc))
+
     def setup_environment(
         self,
         trade_occurrence_frequency: int,
@@ -172,7 +180,7 @@ class TestingEnvironment:
         self._trades_per_occurrence: int = trades_per_occurrence
         self._num_auctions: int = num_auctions
 
-    def run_tests(self, sample_size: int = 10, threads: int | None = 0):
+    def run_tests(self, sample_size: int | None = 10, threads: int | None = 0):
         """Run all the tests given the simulation parameters
 
         Args:
@@ -207,7 +215,10 @@ class TestingEnvironment:
 
             logger.debug(test_cases)
 
-            testable_cases = random.sample(test_cases, sample_size)
+            if sample_size:
+                testable_cases = random.sample(test_cases, sample_size)
+            else:
+                testable_cases = test_cases
 
             # run all the test cases
             all_metrics: list[tutils.MableMetrics] = []
