@@ -130,7 +130,7 @@ class Dumbass3(TradingCompany):
     
     def adjust_predictions(self, company_name, actual_payment, predicted_payment):
         if company_name not in self.company_profit_factors:
-            self.company_profit_factors[company_name] = [1.2]  # Default value if not initialized
+            self.company_profit_factors[company_name] = [1.65]  # Default value if not initialized
 
         # Calculate adjustment factor
         adjustment_factor = actual_payment / predicted_payment if predicted_payment > 0 else float('inf')
@@ -354,8 +354,12 @@ class Dumbass3(TradingCompany):
         """
         predict how much a given competitor will bid on a given trade with a given vessel
         """
-        return self.trade_cost_with_reloc(vessel, trade) * self.competitors[owner].bid_correction_factor
-
+        if len(self.company_profit_factors[owner.name]) != 0:
+            average_profit_factor = sum(self.company_profit_factors[owner.name]) / len(self.company_profit_factors[owner.name])
+            return self.trade_cost_with_reloc(vessel, trade) * average_profit_factor
+        else:
+            return None
+        
     @staticmethod
     def get_end_location(
             vessel: VesselWithEngine
