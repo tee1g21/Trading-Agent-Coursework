@@ -66,7 +66,8 @@ class SuperCoolCompany(TradingCompany):
         return bids
     
     def receive(self, contracts, auction_ledger=None, *args, **kwargs):
-        
+        super().receive(contracts, auction_ledger, *args, **kwargs)
+
         # initialise default profit factors for missing companies
         for company in self.headquarters.get_companies():
            if company.name not in self.company_profit_factors:
@@ -107,7 +108,6 @@ class SuperCoolCompany(TradingCompany):
                 print(f"  Actual Payment: {actual_payment}, Predicted Payment: {predicted_payment}")
                 print(f"  Adjustment Factor: {actual_payment / predicted_payment if predicted_payment > 0 else 'N/A'}")
 
-            super().receive(contracts, auction_ledger, *args, **kwargs)
     
     def adjust_predictions(self, company_name, actual_payment, predicted_payment):
         if company_name not in self.profit_factors:
