@@ -196,7 +196,7 @@ class TestingEnvironment:
                 self._test_companies, self._test_company_combination_size
             )
         )
-        logger.debug(company_combos)
+        # logger.debug(company_combos)
 
         all_metrics = []
 
@@ -213,7 +213,7 @@ class TestingEnvironment:
                 case = [(company, fleet) for company, fleet in zip(combo, assignment)]
                 test_cases.append(case)
 
-            logger.debug(test_cases)
+            # logger.debug(test_cases)
 
             if sample_size:
                 testable_cases = random.sample(test_cases, sample_size)
