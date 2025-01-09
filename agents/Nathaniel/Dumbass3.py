@@ -33,7 +33,7 @@ class CompetitorData:
     bids: List[Tuple[Trade, float]]
 
     def __init__(self):
-        self.bid_correction_factor = 1.2
+        self.bid_correction_factor = 1.8
         self.num_logged_trades = 0
         self.bids = list()
 
@@ -50,7 +50,7 @@ class Dumbass3(TradingCompany):
             for company in self.headquarters.get_companies()
             if company.name is not self.name
         }
-        self.profit_factor = 1.1
+        self.profit_factor = 1.4
 
         self.initialised = True
         return
@@ -91,7 +91,16 @@ class Dumbass3(TradingCompany):
         on auction end
         """
         # TODO: update competitor profit factors and out profit factor here
-        return super().receive(contracts, auction_ledger, *args, **kwargs)
+
+        schedules = self.schedule(contracts)
+        self.apply_schedules(schedules)
+
+        for vessel in self.fleet:
+            schedule = schedules[vessel].get_simple_schedule()
+            trades_str = ','.join([f"[{x[0]}, {fmt_trade(x[1])}]" for x in schedule])
+            if len(trades_str) == 0:
+                trades_str = "None"
+            self.log(f"\t{fmt_vessel(vessel)}: {trades_str}")
 
     def propose_schedules(
             self,
@@ -101,7 +110,7 @@ class Dumbass3(TradingCompany):
             trades,
             self.predict_competitor_bids(trades),
 
-            {vessel: vessel.schedule for vessel in self.fleet},
+            {vessel: vessel.schedule.copy() for vessel in self.fleet},
             {vessel: list() for vessel in self.fleet},
             dict()
         )
@@ -116,6 +125,14 @@ class Dumbass3(TradingCompany):
             scheduled_trades: Dict[Vessel, List[Trade]],
             costs: Dict[Trade, float]
     ) -> ScheduleProposal:
+        @dataclass
+        class Data:
+            trade: Trade
+            vessel: Vessel
+            schedule: Schedule
+            cost: float
+            profit: float
+
         # --------------------------[BASE CASE]---------------------------------
         # all trades have been selected for bids, return
         if len(trades) == 0:
@@ -123,11 +140,10 @@ class Dumbass3(TradingCompany):
 
         # --------------------[PREDICT TRADE PROFITS]---------------------------
 
-        # (trade, vessel conducting trade) -> (vessel schedule with trade, cost,  profit)
         # dict of all trades that are predicted to be profitable (we can underbid competition and still turn a profit)
-        predicted_profits: Dict[Tuple[Trade, Vessel], Tuple[Schedule, float, float]] = dict()
+        predicted_profits: List[Data] = list()
         # dict of all trades that we predict we will not win the bid for
-        predicted_loss: Dict[Tuple[Trade, Vessel], Tuple[Schedule, float, float]] = dict()
+        predicted_loss: List[Data] = list()
         for trade in trades:
             for vessel in self.fleet:
                 cost = self.trade_cost_with_reloc(vessel, trade)
@@ -139,9 +155,9 @@ class Dumbass3(TradingCompany):
                     continue
 
                 if profit > 0:
-                    predicted_profits[(trade, vessel)] = (new_schedule, cost, profit)
+                    predicted_profits.append(Data(trade, vessel, new_schedule, cost, profit))
                 else:
-                    predicted_loss[(trade, vessel)] = (new_schedule, cost, profit)
+                    predicted_loss.append(Data(trade, vessel, new_schedule, cost, profit))
 
         # --------------------------[BASE CASE]---------------------------------
         if len(predicted_profits) == 0:
@@ -158,11 +174,11 @@ class Dumbass3(TradingCompany):
                 # all vessels have bids, exit
                 return self.make_bids(schedules, scheduled_trades, costs)
             # some vessels have no bids, no point doing nothing with them
-            predicted_profits = {
-                trade_option: trade_info
-                for trade_option, trade_info in predicted_loss.items()
-                if trade_option[1] in vessels_with_no_bids
-            }
+            predicted_profits = [
+                data
+                for data in predicted_loss
+                if data.vessel in vessels_with_no_bids
+            ]
 
             if len(predicted_profits) == 0:
                 # there are no valid trades for remaining unallocated vessels, exit
@@ -170,14 +186,13 @@ class Dumbass3(TradingCompany):
 
         # -------------------------[APPLY TRADE]--------------------------------
         # greedily apply the best trade
-        max_profit = max(list(predicted_profits.items()), key=lambda x: x[1][2])
+        max_profit = max(predicted_profits, key=lambda x: x.profit)
 
         # update accumulator args
-        # ...sorry about the tuple notation :D
-        schedules[max_profit[0][1]] = max_profit[1][0]
-        scheduled_trades[max_profit[0][1]].append(max_profit[0][0])
-        costs[max_profit[0][0]] = max_profit[1][1]
-        trades.remove(max_profit[0][0])
+        schedules[max_profit.vessel] = max_profit.schedule
+        scheduled_trades[max_profit.vessel].append(max_profit.trade)
+        costs[max_profit.trade] = max_profit.cost
+        trades.remove(max_profit.trade)
 
         # recursively consider trades
         # n.b: this is a bit inefficient as only profit predictions for the vessel we just added a trade to will change
@@ -203,23 +218,6 @@ class Dumbass3(TradingCompany):
                 trade: cost * self.profit_factor
                 for trade, cost in costs.items()
             })
-
-    # @staticmethod
-    # def generate_options(
-    #         trade: Trade,
-    #         schedule: Schedule
-    # ) -> List[Schedule]:
-    #     options: List[Schedule] = list()
-    #     insertion_points: List[int] = schedule.get_insertion_points()[-8:]
-    #     for idx_pick_up in range(len(insertion_points)):
-    #         pick_up = insertion_points[idx_pick_up]
-    #         insertion_points_after_pickup: List[int] = insertion_points[idx_pick_up:]
-    #         for drop_off in insertion_points_after_pickup:
-    #             schedule_copy = schedule.copy()
-    #             schedule_copy.add_transportation(trade, pick_up, drop_off)
-    #             if schedule_copy.verify_schedule():
-    #                 options.append(schedule_copy)
-    #     return options
 
     def predict_competitor_bids(
             self,
@@ -258,6 +256,62 @@ class Dumbass3(TradingCompany):
         predict how much a given competitor will bid on a given trade with a given vessel
         """
         return self.trade_cost_with_reloc(vessel, trade) * self.competitors[owner].bid_correction_factor
+
+    def schedule(
+            self,
+            contracts: List[Contract]
+    ) -> Dict[Vessel, Schedule]:
+        """
+        min cost scheduler
+        this is used to schedule bids that we win in a way that minimises cost
+        """
+        return self._schedule(
+            {vessel: vessel.schedule.copy() for vessel in self.fleet},
+            contracts
+        )
+
+    def _schedule(
+            self,
+            schedules: Dict[Vessel, Schedule],
+            contracts: List[Contract],
+    ) -> Dict[Vessel, Schedule]:
+        if len(contracts) == 0:
+            return schedules
+
+        current_contract = contracts[0]
+        rest_contract = contracts[1:]
+
+        # find the assignment to any vessel with the shortest completion time
+        shortest: Tuple[Vessel, Schedule, float] | None = None
+        for vessel, current_schedule in schedules.items():
+            for schedule in Dumbass3.generate_options(current_contract.trade, current_schedule):
+                completion_time = schedule.completion_time()
+                if shortest is None or completion_time < shortest[2]:
+                    shortest = (vessel, schedule, completion_time)
+
+        if shortest is None:
+            self.log(f"could not allocate contract: {fmt_trade(current_contract.trade)}")
+        else:
+            schedules[shortest[0]] = shortest[1]
+
+        return self._schedule(schedules, rest_contract)
+
+    @staticmethod
+    def generate_options(
+            trade: Trade,
+            schedule: Schedule
+    ) -> List[Schedule]:
+        options: List[Schedule] = list()
+        insertion_points: List[int] = schedule.get_insertion_points()[-8:]
+        for idx_pick_up in range(len(insertion_points)):
+            pick_up = insertion_points[idx_pick_up]
+            insertion_points_after_pickup: List[int] = insertion_points[idx_pick_up:]
+            for drop_off in insertion_points_after_pickup:
+                schedule_copy = schedule.copy()
+                schedule_copy.add_transportation(trade, pick_up, drop_off)
+                if schedule_copy.verify_schedule():
+                    options.append(schedule_copy)
+        return options
 
     @staticmethod
     def get_end_location(
