@@ -72,7 +72,7 @@ class SuperCoolCompany(TradingCompany):
            if company.name not in self.company_profit_factors:
                self.company_profit_factors[company.name] = [1.2]
                
-        # process each companies won contracts
+        # Process each company's won contracts
         for company_name, won_contracts in auction_ledger.items():
             company_fleet = [c for c in self.headquarters.get_companies() if c.name == company_name].pop().fleet
 
@@ -80,27 +80,34 @@ class SuperCoolCompany(TradingCompany):
                 trade = contract.trade
                 actual_payment = contract.payment
 
-                # Predict cost
+                # Step 1: Predict payment using the current profit factor
+                predicted_payment = self.predict_payment(company_name, trade)
+
+                # Step 2: Calculate and store the profit factor
                 best_cost = float('inf')
                 for vessel in company_fleet:
                     predicted_cost = self.predict_cost(vessel, trade)
                     if predicted_cost < best_cost:
                         best_cost = predicted_cost
 
-                # Calculate the profit factor
                 if best_cost > 0:
                     profit_factor = actual_payment / best_cost
                 else:
                     profit_factor = float('inf')
 
-                # Add the profit factor to the company's record
                 self.profit_factors[company_name].append(profit_factor)
 
-                # Debug output
-                print(f"Company: {company_name}, Trade: {trade.origin_port.name} -> {trade.destination_port.name}")
-                print(f"  Payment: {actual_payment}, Predicted Cost: {best_cost}, Profit Factor: {profit_factor}")
+                # Step 3: Adjust predictions dynamically
+                if predicted_payment is not None:
+                    self.adjust_predictions(company_name, actual_payment, predicted_payment)
 
-        super().receive(contracts, auction_ledger, *args, **kwargs)
+                # Debugging
+                print(f"Company: {company_name}")
+                print(f"  Trade: {trade.origin_port.name} -> {trade.destination_port.name}")
+                print(f"  Actual Payment: {actual_payment}, Predicted Payment: {predicted_payment}")
+                print(f"  Adjustment Factor: {actual_payment / predicted_payment if predicted_payment > 0 else 'N/A'}")
+
+            super().receive(contracts, auction_ledger, *args, **kwargs)
     
     def adjust_predictions(self, company_name, actual_payment, predicted_payment):
         if company_name not in self.profit_factors:
@@ -168,86 +175,6 @@ class SuperCoolCompany(TradingCompany):
         
         return total_cost
     
-    def find_competing_vessels(self, trade):
-        competing_vessels = {}                
-        companies = self.headquarters.get_companies()
-
-        # Find the closest vessel for each company
-        if companies:
-            for company in companies:
-                closest_vessel = None
-                min_distance = float('inf')
-
-                for vessel in company.fleet:                    
-                    print(f"{company.name}'s {vessel.name}")                    
-                    # distance from vessel to trade origin port
-                    distance = self.headquarters.get_network_distance(vessel.location, trade.origin_port)
-                    # update min distance and closest vessel
-                    if distance < min_distance:
-                        min_distance = distance
-                        closest_vessel = vessel
-
-                # add the closest vessel to competing vessels
-                if closest_vessel:
-                    competing_vessels[company] = closest_vessel
-                    
-        return competing_vessels
-
-    def order_trades_by_future_distance(self, trades):
-        trade_distances = {}
-
-        for current_trade in trades:
-            closest_future_trade = None
-            min_distance = float('inf')
-
-            if self._future_trades:  # Ensure there are future trades available
-                for future_trade in self._future_trades:
-                    distance = self.headquarters.get_network_distance(
-                        current_trade.destination_port, future_trade.origin_port
-                    )
-                    if distance < min_distance:
-                        min_distance = distance
-                        closest_future_trade = future_trade
-
-            # Store the minimum distance for the current trade
-            trade_distances[current_trade] = min_distance
-
-            # Debug output
-            print(f"Trade: {current_trade.origin_port.name} -> {current_trade.destination_port.name}")
-            if closest_future_trade:
-                print(f"\tClosest future trade: {closest_future_trade.origin_port.name} -> {closest_future_trade.destination_port.name}")
-                print(f"\tDistance: {min_distance}")
-            else:
-                print("\tNo future trades available")
-
-        # Sort trades by distance to the closest future trade
-        sorted_trades = sorted(trade_distances.keys(), key=lambda trade: trade_distances[trade])
-
-        return sorted_trades
-
-    def order_trades_by_profit(self, trades):
-        trade_profits = {}
-
-        for trade in trades:
-            # Predict cost for executing the trade
-            best_cost = float('inf')
-            for vessel in self.fleet:  # Consider each vessel for the trade
-                predicted_cost = self.predict_cost(vessel, trade)
-                if predicted_cost < best_cost:
-                    best_cost = predicted_cost
-
-            # Calculate revenue (assume trade.amount * some constant per unit)
-            revenue = trade.payment * 1  # Replace 1 with actual revenue multiplier
-
-            # Calculate profit
-            profit = revenue - best_cost
-            trade_profits[trade] = profit
-
-        # Sort trades by profit
-        sorted_trades = sorted(trade_profits.keys(), key=lambda trade: trade_profits[trade], reverse=True)
-        return sorted_trades
-
-
     def log(
             self,
             text: str
