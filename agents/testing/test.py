@@ -122,6 +122,15 @@ class TestingEnvironment:
     def setup_companies(
         self, companies: list[type[TradingCompany]] | None, combination_size: int = 2
     ):
+        """Setup the companies for the performance test
+
+        Args:
+            companies (list[type[TradingCompany]] | None): list of all company types to test.
+            combination_size (int, optional): number of combinations to test. Defaults to 2.
+
+        Raises:
+            ValueError: if number of companies is smaller than the list of combination size
+        """
         if companies:
             self._test_companies = companies
         if len(self._test_companies) < combination_size:
@@ -131,6 +140,13 @@ class TestingEnvironment:
         self._test_company_combination_size = combination_size
 
     def setup_random_fleets(self, max_suezmax=1, max_aframax=1, max_vlcc=1):
+        """Generate all combinations of fleets up to numbers provided.
+
+        Args:
+            max_suezmax (int, optional): Defaults to 1.
+            max_aframax (int, optional): Defaults to 1.
+            max_vlcc (int, optional): Defaults to 1.
+        """
         self._test_fleet_combos = []
         for suez_num in range(max_suezmax + 1):
             for afra_num in range(max_aframax + 1):
@@ -145,6 +161,13 @@ class TestingEnvironment:
         trades_per_occurrence: int,
         num_auctions: int,
     ):
+        """Change Environment parameters.
+
+        Args:
+            trade_occurrence_frequency (int): _description_
+            trades_per_occurrence (int): _description_
+            num_auctions (int): _description_
+        """
         self._trade_occurrence_frequency: int = trade_occurrence_frequency
         self._trades_per_occurrence: int = trades_per_occurrence
         self._num_auctions: int = num_auctions
