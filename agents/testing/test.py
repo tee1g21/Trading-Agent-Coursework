@@ -1,9 +1,12 @@
 # performance testing
 
+import datetime
 import inspect
 import itertools
+import json
 import os
 import random
+import time
 import typing
 from multiprocessing.pool import ThreadPool
 
@@ -13,6 +16,8 @@ from mable.competition.generation import AuctionSimulationEngine
 from mable.examples import environment, fleets
 from mable.extensions.fuel_emissions import FuelSpecsBuilder
 from mable.observers import EventObserver
+
+import agents.testing.utils as tutils
 
 
 class PerformanceTest:
@@ -110,6 +115,9 @@ class TestingEnvironment:
         self.all_test_results = []
         self._test_companies: list[type[TradingCompany]] = []
         self._test_fleet_combos: list[tuple[int, int, int]] = []
+        self._trade_occurrence_frequency: int = 30
+        self._trades_per_occurrence: int = 5
+        self._num_auctions: int = 5
 
     def setup_companies(
         self, companies: list[type[TradingCompany]] | None, combination_size: int = 2
@@ -131,7 +139,23 @@ class TestingEnvironment:
                         continue
                     self._test_fleet_combos.append((suez_num, afra_num, vlcc_num))
 
-    def run_tests(self):
+    def setup_environment(
+        self,
+        trade_occurrence_frequency: int,
+        trades_per_occurrence: int,
+        num_auctions: int,
+    ):
+        self._trade_occurrence_frequency: int = trade_occurrence_frequency
+        self._trades_per_occurrence: int = trades_per_occurrence
+        self._num_auctions: int = num_auctions
+
+    def run_tests(self, sample_size: int = 10, threads: int | None = 0):
+        """Run all the tests given the simulation parameters
+
+        Args:
+            sample_size (int, optional): number of total sampels to use. Defaults to 10.
+            threads (int | None, optional): number of threads if running multithreaded, otherwise None (Use 0 for num_proc). Defaults to 0.
+        """
         logger.info("Running Test suite")
         logger.info("Params:")
         logger.info(f"Companies: {self._test_companies}")
@@ -142,6 +166,9 @@ class TestingEnvironment:
             )
         )
         logger.debug(company_combos)
+
+        all_metrics = []
+
         for combo in company_combos:
             # Each set of tests has a combination of companies
             # Now we do all the fleets
@@ -157,24 +184,47 @@ class TestingEnvironment:
 
             logger.debug(test_cases)
 
-            testable_cases = random.sample(test_cases, 5)
+            testable_cases = random.sample(test_cases, sample_size)
 
             # run all the test cases
-            with ThreadPool() as pool:
-                pool.map(self.run_test, testable_cases)
-            # for case in testable_cases:
-            #     self.run_test(case)
+            all_metrics: list[tutils.MableMetrics] = []
+            if threads:
+                if threads == 0:
+                    threads = None
+                with ThreadPool(processes=threads) as pool:
+                    all_metrics = pool.map(self.run_test, testable_cases)
+            else:
+                for case in testable_cases:
+                    all_metrics.append(self.run_test(case))
+
+            with open(
+                f"out/test-{datetime.datetime.utcnow().timestamp()}.csv", "w"
+            ) as f:
+                f.write(
+                    '"company, fleet_size", "Company_name, fuel_costs, auction_revenue, auction_losses, profits"\n'
+                )
+
+                for metric in all_metrics:
+                    string = metric.get_csv_string()
+                    logger.info(string)
+                    f.write(string)
+                    f.write("\n")
 
     def run_test(
         self,
         companies_with_fleets: list[tuple[type[TradingCompany], tuple[int, int, int]]],
-    ):
+    ) -> tutils.MableMetrics:
         logger.info("Creating Performance Test")
         performance_test = PerformanceTest()
         logger.info("Setup Performance Test")
-        performance_test.setup(30, 5, 5)
+        performance_test.setup(
+            self._trade_occurrence_frequency,
+            self._trades_per_occurrence,
+            self._num_auctions,
+        )
 
-        performance_test.set_output_directory("./out/test")
+        outdir = f"./out/test-{id(companies_with_fleets)}"
+        performance_test.set_output_directory(outdir)
 
         logger.info("Adding Companies")
         for company in companies_with_fleets:
@@ -184,8 +234,21 @@ class TestingEnvironment:
         performance_test.test()
         logger.info("End Performance Test")
 
-    def get_test_results(self, dir: str):
-        pass
+        metrics = self.get_test_results(outdir)
+        if len(metrics) > 1:
+            logger.warning("More than one output file for metrics: %s", metrics)
+        if len(metrics) < 1:
+            logger.error("Error collecting metrics from test")
+        metrics[0].set_company_environments(companies_with_fleets)
+        return metrics[0]
+
+    @classmethod
+    def get_test_results(cls, dir: str) -> list[tutils.MableMetrics]:
+        metrics_list = []
+        for file in os.listdir(dir):
+            with open(os.path.join(dir, file), "r") as f:
+                metrics_list.append(tutils.MableMetrics(json.load(f)))
+        return metrics_list
 
     def print_results(self):
         pass
