@@ -1,0 +1,4 @@
+This agent demonstrates basic principles of tramp shipping in a multi-agent environment:
+1. Auction-based bidding: We place bids based on estimated costs.
+2. Competitor modeling: We predict other agents’ costs (even if it’s a simple “correction factor”).
+3. Greedy scheduling: We pick trades that appear profitable right now.
