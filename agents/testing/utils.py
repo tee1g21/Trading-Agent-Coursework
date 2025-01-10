@@ -83,7 +83,8 @@ class CompanyMetric:
         self.profits = self.get_profits()
 
     def get_csv_string(self):
-        return f'"{self.name}, {self.fuel_costs}, {self.auction_revenue}, {self.auction_losses}, {self.get_profits()}"'
+        return f'"{self.name}, {self.get_profits()}"'
+        # return f'"{self.name}, {self.fuel_costs}, {self.auction_revenue}, {self.auction_losses}, {self.get_profits()}"'
 
     def get_profits(self) -> float:
         return self.auction_revenue - self.auction_losses - self.fuel_costs

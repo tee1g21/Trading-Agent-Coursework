@@ -186,7 +186,7 @@ class TestingEnvironment:
         """Run all the tests given the simulation parameters
 
         Args:
-            sample_size (int, optional): number of total sampels to use. Defaults to 10.
+            sample_size (int, optional): number of total sampels to use. None for all. Defaults to 10.
             threads (int | None, optional): number of threads if running multithreaded, otherwise None (Use 0 for num_proc). Defaults to 0.
         """
         logger.info("Running Test suite")
