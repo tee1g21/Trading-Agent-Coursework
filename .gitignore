@@ -10,6 +10,8 @@
 **/routing_graph_world_mask.pkl
 **/time_transition_distribution.csv
 
+/out
+
 ## https://github.com/github/gitignore/blob/main/Python.gitignore
 
 # Byte-compiled / optimized / DLL files
