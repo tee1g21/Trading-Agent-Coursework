@@ -34,6 +34,9 @@ class PerformanceTest:
             raise ValueError(
                 f"Cannot find Resources Directory relative to {os.path.abspath(os.path.curdir)}"
             )
+        logger.debug(
+            f"Setting up environment: trade_occurrence_frequency={trade_occurrence_frequency}, trades_per_occurrence={trades_per_occurrence}, num_auctions={num_auctions}"
+        )
         self._specifications_builder = environment.get_specification_builder(
             environment_files_path=self._resources,
             trade_occurrence_frequency=trade_occurrence_frequency,
@@ -221,7 +224,9 @@ class TestingEnvironment:
 
             self.create_csv_file(company_combos, all_metrics)
 
-    def run_tests_auctions(self, sample_size: int | None = 10, threads: int | None = 0):
+    def run_tests_auctions(
+        self, max_auction_items: int | None = 10, threads: int | None = 0
+    ):
         """Run all the tests given the simulation parameters
 
         Args:
@@ -243,8 +248,8 @@ class TestingEnvironment:
         for combo in company_combos:
             # Each set of tests has a combination of companies
             # Now we do all the fleets
-            test_cases = self.generate_test_cases(
-                combo, self._test_fleet_combos, sample_size
+            test_cases = self.generate_test_cases_simple(
+                combo, (3, 3, 3), max_auction_items
             )
 
             # run all the test cases
@@ -262,32 +267,29 @@ class TestingEnvironment:
 
     def run_test(
         self,
-        companies_with_fleets: list[tuple[type[TradingCompany], tuple[int, int, int]]],
-        trade_occurrence_frequency: int | None = None,
-        trades_per_occurrence: int | None = None,
-        num_auctions: int | None = None,
+        test_params: "TestParams",
     ) -> tutils.MableMetrics:
-        if not trade_occurrence_frequency:
-            trade_occurrence_frequency = self._trade_occurrence_frequency
-        if not trades_per_occurrence:
-            trades_per_occurrence = self._trades_per_occurrence
-        if not num_auctions:
-            num_auctions = self._num_auctions
+        if test_params.trade_occurrence_frequency is None:
+            test_params.trade_occurrence_frequency = self._trade_occurrence_frequency
+        if test_params.trades_per_occurrence is None:
+            test_params.trades_per_occurrence = self._trades_per_occurrence
+        if test_params.num_auctions is None:
+            test_params.num_auctions = self._num_auctions
 
         logger.info("Creating Performance Test")
         performance_test = PerformanceTest()
         logger.info("Setup Performance Test")
         performance_test.setup(
-            trade_occurrence_frequency,
-            trades_per_occurrence,
-            num_auctions,
+            test_params.trade_occurrence_frequency,
+            test_params.trades_per_occurrence,
+            test_params.num_auctions,
         )
 
-        outdir = f"./out/test-{id(companies_with_fleets)}"
+        outdir = f"./out/test-{id(test_params.companies_with_fleets)}"
         performance_test.set_output_directory(outdir)
 
         logger.info("Adding Companies")
-        for company in companies_with_fleets:
+        for company in test_params.companies_with_fleets:
             performance_test.add_company_random_fleet(company[0], company[1])
 
         logger.info("Running Test")
@@ -299,7 +301,7 @@ class TestingEnvironment:
             logger.warning("More than one output file for metrics: %s", metrics)
         if len(metrics) < 1:
             logger.error("Error collecting metrics from test")
-        metrics[0].set_company_environments(companies_with_fleets)
+        metrics[0].set_company_environments(test_params.companies_with_fleets)
         return metrics[0]
 
     @classmethod
@@ -316,8 +318,7 @@ class TestingEnvironment:
         companies: tuple[type[TradingCompany], ...],
         fleet_combos: list[tuple[int, int, int]],
         sample_size: int | None = None,
-        trades_per_occurrence_max: int | None = None,
-    ) -> list[list[tuple[type[TradingCompany], tuple[int, int, int]]]]:
+    ) -> list["TestParams"]:
         logger.debug("Creating fleet assignments")
         fleet_assignments = itertools.product(fleet_combos, repeat=len(companies))
 
@@ -329,15 +330,42 @@ class TestingEnvironment:
 
             logger.debug("Returning interator")
             return [
-                [(company, fleet) for company, fleet in zip(companies, assignment)]
+                cls.TestParams(
+                    companies_with_fleets=[
+                        (company, fleet)
+                        for company, fleet in zip(companies, assignment)
+                    ]
+                )
                 for assignment in sampled_fleets
             ]
 
         else:
             return [
-                [(company, fleet) for company, fleet in zip(companies, assignment)]
+                cls.TestParams(
+                    companies_with_fleets=[
+                        (company, fleet)
+                        for company, fleet in zip(companies, assignment)
+                    ]
+                )
                 for assignment in fleet_assignments
             ]
+
+    @classmethod
+    def generate_test_cases_simple(
+        cls,
+        companies: tuple[type[TradingCompany], ...],
+        fleet_combo: tuple[int, int, int],
+        auction_number_max: int | None = None,
+    ) -> list["TestParams"]:
+        if not auction_number_max:
+            raise ValueError("Auction number must be number")
+        return [
+            cls.TestParams(
+                [(company, fleet_combo) for company in companies],
+                trades_per_occurrence=auction_number,
+            )
+            for auction_number in range(1, auction_number_max + 1)
+        ]
 
     @classmethod
     def create_csv_file(
@@ -355,3 +383,21 @@ class TestingEnvironment:
                 logger.info(string)
                 f.write(string)
                 f.write("\n")
+
+    class TestParams:
+
+        def __init__(
+            self,
+            companies_with_fleets: list[
+                tuple[type[TradingCompany], tuple[int, int, int]]
+            ],
+            trade_occurrence_frequency: int | None = None,
+            trades_per_occurrence: int | None = None,
+            num_auctions: int | None = None,
+        ):
+            self.companies_with_fleets: list[
+                tuple[type[TradingCompany], tuple[int, int, int]]
+            ] = companies_with_fleets
+            self.trade_occurrence_frequency: int | None = trade_occurrence_frequency
+            self.trades_per_occurrence: int | None = trades_per_occurrence
+            self.num_auctions: int | None = num_auctions
