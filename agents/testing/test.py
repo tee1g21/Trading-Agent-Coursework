@@ -6,7 +6,6 @@ import itertools
 import json
 import os
 import random
-import time
 import typing
 from multiprocessing.pool import ThreadPool
 
@@ -64,9 +63,9 @@ class PerformanceTest:
         if self._specifications_builder is None:
             raise AssertionError("Must run Performancetest.setup first")
 
-        logger.debug(f"Adding Company {{{company.__name__}, {fleet}}}")
+        logger.debug(f"Adding Company {company.__name__}")
         self._specifications_builder.add_company(
-            company.Data(company, fleet, company.__name__)
+            company.Data(company, fleet, company.__name__)  # type: ignore
         )
 
     def __init__(self):
@@ -182,7 +181,7 @@ class TestingEnvironment:
         self._trades_per_occurrence: int = trades_per_occurrence
         self._num_auctions: int = num_auctions
 
-    def run_tests(self, sample_size: int | None = 10, threads: int | None = 0):
+    def run_tests_fleets(self, sample_size: int | None = 10, threads: int | None = 0):
         """Run all the tests given the simulation parameters
 
         Args:
@@ -205,22 +204,9 @@ class TestingEnvironment:
         for combo in company_combos:
             # Each set of tests has a combination of companies
             # Now we do all the fleets
-            test_cases = []
-
-            fleet_assignments = itertools.product(
-                self._test_fleet_combos, repeat=len(combo)
+            test_cases = self.generate_test_cases(
+                combo, self._test_fleet_combos, sample_size
             )
-
-            for assignment in fleet_assignments:
-                case = [(company, fleet) for company, fleet in zip(combo, assignment)]
-                test_cases.append(case)
-
-            # logger.debug(test_cases)
-
-            if sample_size:
-                testable_cases = random.sample(test_cases, sample_size)
-            else:
-                testable_cases = test_cases
 
             # run all the test cases
             all_metrics: list[tutils.MableMetrics] = []
@@ -228,37 +214,73 @@ class TestingEnvironment:
                 if threads == 0:
                     threads = None
                 with ThreadPool(processes=threads) as pool:
-                    all_metrics = pool.map(self.run_test, testable_cases)
+                    all_metrics = pool.map(self.run_test, test_cases)
             else:
-                for case in testable_cases:
+                for case in test_cases:
                     all_metrics.append(self.run_test(case))
 
-            with open(
-                f"out/test-{datetime.datetime.utcnow().timestamp()}.csv", "w"
-            ) as f:
-                f.write('"Company, fleet_size", ')
-                for company in company_combos:
-                    f.write(
-                        f'"{company[0].__name__}, fuel_costs, auction_revenue, auction_losses, profits"\n'
-                    )
+            self.create_csv_file(company_combos, all_metrics)
 
-                for metric in all_metrics:
-                    string = metric.get_csv_string()
-                    logger.info(string)
-                    f.write(string)
-                    f.write("\n")
+    def run_tests_auctions(self, sample_size: int | None = 10, threads: int | None = 0):
+        """Run all the tests given the simulation parameters
+
+        Args:
+            sample_size (int, optional): number of total sampels to use. None for all. Defaults to 10.
+            threads (int | None, optional): number of threads if running multithreaded, otherwise None (Use 0 for num_proc). Defaults to 0.
+        """
+        logger.info("Running Test suite")
+        logger.info("Params:")
+        logger.info(f"Companies: {self._test_companies}")
+        logger.info(f"Fleet numbers: {self._test_fleet_combos}")
+        company_combos: list[tuple[type[TradingCompany], ...]] = list(
+            itertools.combinations(
+                self._test_companies, self._test_company_combination_size
+            )
+        )
+
+        all_metrics = []
+
+        for combo in company_combos:
+            # Each set of tests has a combination of companies
+            # Now we do all the fleets
+            test_cases = self.generate_test_cases(
+                combo, self._test_fleet_combos, sample_size
+            )
+
+            # run all the test cases
+            all_metrics: list[tutils.MableMetrics] = []
+            if threads:
+                if threads == 0:
+                    threads = None
+                with ThreadPool(processes=threads) as pool:
+                    all_metrics = pool.map(self.run_test, test_cases)
+            else:
+                for case in test_cases:
+                    all_metrics.append(self.run_test(case))
+
+            self.create_csv_file(company_combos, all_metrics)
 
     def run_test(
         self,
         companies_with_fleets: list[tuple[type[TradingCompany], tuple[int, int, int]]],
+        trade_occurrence_frequency: int | None = None,
+        trades_per_occurrence: int | None = None,
+        num_auctions: int | None = None,
     ) -> tutils.MableMetrics:
+        if not trade_occurrence_frequency:
+            trade_occurrence_frequency = self._trade_occurrence_frequency
+        if not trades_per_occurrence:
+            trades_per_occurrence = self._trades_per_occurrence
+        if not num_auctions:
+            num_auctions = self._num_auctions
+
         logger.info("Creating Performance Test")
         performance_test = PerformanceTest()
         logger.info("Setup Performance Test")
         performance_test.setup(
-            self._trade_occurrence_frequency,
-            self._trades_per_occurrence,
-            self._num_auctions,
+            trade_occurrence_frequency,
+            trades_per_occurrence,
+            num_auctions,
         )
 
         outdir = f"./out/test-{id(companies_with_fleets)}"
@@ -288,5 +310,48 @@ class TestingEnvironment:
                 metrics_list.append(tutils.MableMetrics(json.load(f)))
         return metrics_list
 
-    def print_results(self):
-        pass
+    @classmethod
+    def generate_test_cases(
+        cls,
+        companies: tuple[type[TradingCompany], ...],
+        fleet_combos: list[tuple[int, int, int]],
+        sample_size: int | None = None,
+        trades_per_occurrence_max: int | None = None,
+    ) -> list[list[tuple[type[TradingCompany], tuple[int, int, int]]]]:
+        logger.debug("Creating fleet assignments")
+        fleet_assignments = itertools.product(fleet_combos, repeat=len(companies))
+
+        if sample_size:
+            logger.debug(f"Sampling fleets len: {len(fleet_combos) ** len(companies)}")
+            sampled_fleets = random.sample(
+                list(itertools.islice(fleet_assignments, 0, None)), sample_size
+            )
+
+            logger.debug("Returning interator")
+            return [
+                [(company, fleet) for company, fleet in zip(companies, assignment)]
+                for assignment in sampled_fleets
+            ]
+
+        else:
+            return [
+                [(company, fleet) for company, fleet in zip(companies, assignment)]
+                for assignment in fleet_assignments
+            ]
+
+    @classmethod
+    def create_csv_file(
+        cls,
+        company_combos: list[tuple[type[TradingCompany], ...]],
+        all_metrics: list[tutils.MableMetrics],
+    ):
+        with open(f"out/test-{datetime.datetime.utcnow().timestamp()}.csv", "w") as f:
+            f.write('"Company, fleet_size", ')
+            for company in company_combos:
+                f.write(f'"{company[0].__name__}, profits"\n')
+
+            for metric in all_metrics:
+                string = metric.get_csv_string()
+                logger.info(string)
+                f.write(string)
+                f.write("\n")

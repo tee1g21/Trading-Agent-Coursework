@@ -22,6 +22,7 @@ class MableMetrics:
             out += '"'
             for company_property in self.company_properties:
                 out += f"{company_property[0].__name__}, {company_property[1]},"
+            out = out[:-1]
             out += '",'
         for company in self.companies:
             out += company.get_csv_string()
