@@ -1,6 +1,6 @@
-from mable.examples import environment, fleets
+from mable.examples import environment, fleets, companies
 
-from agents.Nathaniel.Dumbass3 import Dumbass3
+from agents.main.final import CompanyWhatever
 from agents.Tom.SuperCoolCompany import SuperCoolCompany
 
 
@@ -10,17 +10,17 @@ def build_specification():
         trades_per_occurrence=5,
         num_auctions=12,
         environment_files_path='resources/')
+    # my_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
+    # specifications_builder.add_company(SuperCoolCompany.Data(SuperCoolCompany, my_fleet, SuperCoolCompany.__name__))
     my_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
-    specifications_builder.add_company(SuperCoolCompany.Data(SuperCoolCompany, my_fleet, SuperCoolCompany.__name__))
-    my_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
-    specifications_builder.add_company(Dumbass3.Data(Dumbass3, my_fleet, Dumbass3.__name__))
+    specifications_builder.add_company(CompanyWhatever.Data(CompanyWhatever, my_fleet, CompanyWhatever.__name__))
     # my_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
     # specifications_builder.add_company(Dumbass.Data(Dumbass, my_fleet, Dumbass.__name__))
-    # arch_enemy_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
-    # specifications_builder.add_company(
-    #     companies.MyArchEnemy.Data(
-    #         companies.MyArchEnemy, arch_enemy_fleet, "Arch Enemy Ltd.",
-    #         profit_factor=1.8))
+    arch_enemy_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
+    specifications_builder.add_company(
+        companies.MyArchEnemy.Data(
+            companies.MyArchEnemy, arch_enemy_fleet, "Arch Enemy Ltd.",
+            profit_factor=1.8))
     # the_scheduler_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
     # specifications_builder.add_company(
     #     companies.TheScheduler.Data(
