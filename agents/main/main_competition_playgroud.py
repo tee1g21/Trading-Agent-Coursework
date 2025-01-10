@@ -20,12 +20,12 @@ def build_specification():
     specifications_builder.add_company(
         companies.MyArchEnemy.Data(
             companies.MyArchEnemy, arch_enemy_fleet, "Arch Enemy Ltd.",
-            profit_factor=1.8))
-    # the_scheduler_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
-    # specifications_builder.add_company(
-    #     companies.TheScheduler.Data(
-    #         companies.TheScheduler, the_scheduler_fleet, "The Scheduler LP",
-    #         profit_factor=1.4))
+            profit_factor=1.65))
+    the_scheduler_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
+    specifications_builder.add_company(
+        companies.TheScheduler.Data(
+            companies.TheScheduler, the_scheduler_fleet, "The Scheduler LP",
+            profit_factor=1.65))
     sim = environment.generate_simulation(
         specifications_builder,
         show_detailed_auction_outcome=True,

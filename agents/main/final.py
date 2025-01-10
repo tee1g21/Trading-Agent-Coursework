@@ -3,11 +3,19 @@ from typing import List, Tuple, Dict
 
 from mable.cargo_bidding import TradingCompany
 from mable.extensions.fuel_emissions import VesselWithEngine
-from mable.shipping_market import Trade, Contract, AuctionLedger
+from mable.shipping_market import Trade, Contract
 from mable.simulation_space.universe import Location, OnJourney
 from mable.transport_operation import Bid, Vessel, ScheduleProposal
 from mable.transportation_scheduling import Schedule
 
+"""
+TODO:
+known issues:
+
+trade_cost_with_reloc seems to be underestimating costs somehow, I have no idea how
+we don't bid on enough contracts, need to bias it to making more bids somehow
+company pf prediction seems to jump around a fair but though stays in the right ballpark
+"""
 
 # -------------------[PRINT FORMATTERS]--------------------
 def fmt_location(location: Location | OnJourney) -> str:
@@ -37,7 +45,6 @@ class CompetitorData:
             cls: TradingCompany
     ):
         self.cls = cls
-        self.num_logged_trades = 0
         self.profit_factor_history = [1.5]
 
 
@@ -48,6 +55,7 @@ class CompanyWhatever(TradingCompany):
         self.competitors: Dict[str, CompetitorData] | None = None
         self.profit_factor: float = 1.4
         self.num_bids_prev: int = 0
+        self.num_options_prev: int = 0
 
     def init_competitors(self) -> None:
         self.competitors = {
@@ -70,7 +78,7 @@ class CompanyWhatever(TradingCompany):
         """
         auction started, propose bids
         """
-
+        self.num_options_prev = len(trades)
         bids: List[Bid] = super().inform(trades, *args, **kwargs)
         self.num_bids_prev = len(bids)
 
@@ -106,6 +114,9 @@ class CompanyWhatever(TradingCompany):
 
         if auction_ledger is not None:
             self.update_competitor_info(auction_ledger)
+
+        self.update_profit_factor(len(contracts))
+        self.log(f"profit factor: {self.profit_factor}")
 
     def propose_schedules(
             self,
@@ -152,7 +163,12 @@ class CompanyWhatever(TradingCompany):
         for trade in trades:
             for vessel in self.fleet:
                 cost = self.trade_cost_with_reloc(vessel, trade)
-                profit = competitor_bids[trade] - cost
+
+                if trade in competitor_bids:
+                    profit = competitor_bids[trade] - cost
+                else:
+                    # this is kinda hacky but should never happen
+                    profit = -cost * self.profit_factor
 
                 new_schedule: Schedule = schedules[vessel].copy()
                 new_schedule.add_transportation(trade)
@@ -232,7 +248,7 @@ class CompanyWhatever(TradingCompany):
         for each trade, predict the lowest bid a competitor will make on it
         """
         return {
-            trade: min(self.predict_bid(company_name, trade) for company_name in self.competitors.keys())
+            trade: min([self.predict_bid(company_name, trade) for company_name in self.competitors.keys()], default=0)
             for trade in trades
         }
 
@@ -379,7 +395,7 @@ class CompanyWhatever(TradingCompany):
 
             # find the average profit factor for the last auction round
             # and add it to the history
-            profit_factor_avg = CompanyWhatever.clamp(1.2, profit_factor_sum / len(won_contracts), 3)
+            profit_factor_avg = CompanyWhatever.clamp(1.4, profit_factor_sum / len(won_contracts), 3)
             self.competitors[company_name].profit_factor_history.append(profit_factor_avg)
 
             self.log(f"new profit factor for: {company_name} -> {profit_factor_avg}")
@@ -393,15 +409,15 @@ class CompanyWhatever(TradingCompany):
         each auction has 1.5x the weight of the last
         """
         pfh = self.competitors[company_name].profit_factor_history
-        weights = [1.5**i for i in range(len(pfh))]
+        weights = [1.1**i for i in range(len(pfh))]
         weighted_sum = sum(weight * value for weight, value in zip(weights, pfh))
         total_weight = sum(weights)
         return weighted_sum / total_weight
 
     def predict_payment(
             self,
-            company_name,
-            trade
+            company_name: str,
+            trade: Trade
     ) -> float:
         # Use the average profit factor
         average_profit_factor = self.weighted_profit_factor(company_name)
@@ -424,6 +440,24 @@ class CompanyWhatever(TradingCompany):
         # Assume bid is slightly below predicted payment
         predicted_bid = predicted_payment * multiplier  # Adjust multiplier based on observed behavior
         return predicted_bid
+
+    # --------------[OUR PROFIT FACTOR]---------------
+    def update_profit_factor(
+            self,
+            num_wins: int
+    ) -> None:
+        if self.num_bids_prev == 0 or self.num_options_prev == 0:
+            return
+
+        rate = num_wins / self.num_bids_prev
+        tgt_rate = min(len(self.headquarters.get_companies()) / self.num_options_prev,
+                       0.75)
+        delta = tgt_rate - rate
+        self.profit_factor -= delta
+
+        self.profit_factor = self.clamp(1.4, self.profit_factor, 3)
+
+        return
 
     @staticmethod
     def clamp(
