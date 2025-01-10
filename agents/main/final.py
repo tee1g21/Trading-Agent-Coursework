@@ -56,7 +56,7 @@ class CompanyWhatever(TradingCompany):
         self.profit_factor: float = 1.4
         self.num_bids_prev: int = 0
         self.num_options_prev: int = 0
-		self.future_trades = []
+        self.future_trades: List[Trade] = []
 
     def init_competitors(self) -> None:
         self.competitors = {
@@ -66,12 +66,13 @@ class CompanyWhatever(TradingCompany):
         }
         return
 
-    def pre_inform(self, trades, time):
+    def pre_inform(
+            self,
+            trades: List[Trade],
+            time
+    ) -> None:
         self.future_trades = trades
-        #print(f"\nPre-informed of {len(self._future_trades)} future trades:")
-        #for trade in self._future_trades:
-        #    print(trade.origin_port.name, "-> ", trade.destination_port.name)
-        #print()
+        return
 
     def inform(
             self,
@@ -236,23 +237,27 @@ class CompanyWhatever(TradingCompany):
         )
 
     ## Code to work out cost of nearest future trade
-    def cost_to_closest_future_trade(self, vessel: VesselWithEngine, trade: Trade) -> float:
+    def cost_to_closest_future_trade(
+            self,
+            vessel: VesselWithEngine,
+            trade: Trade
+    ) -> float:
         # if there are future trades find the closest one
         if self.future_trades:
-
-            closest_future_trade = None
-            min_distance = float('inf')
-            for future_trade in self.future_trades:
-                distance = self.headquarters.get_network_distance(trade.destination_port, future_trade.origin_port)
-                if distance < min_distance:
-                    min_distance = distance
-                    closest_future_trade = future_trade
+            min_distance = min(
+                min(
+                    self.headquarters.get_network_distance(self.get_end_location(vessel), trade.origin_port)
+                    for vessel
+                    in self.fleet
+                )
+                for trade
+                in self.future_trades
+            )
 
             # caculate the cost to the closest future trade
             travel_time = vessel.get_travel_time(min_distance)
             cost = vessel.get_ballast_consumption(travel_time, vessel.speed)
 
-            #print(f"\tClosest future trade: {closest_future_trade.origin_port.name} -> {closest_future_trade.destination_port.name}, Distance: {min_distance}")
             return cost
         else:
             print("No future trades")
