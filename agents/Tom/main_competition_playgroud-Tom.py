@@ -1,7 +1,7 @@
 from mable.examples import environment, fleets, companies
 
 import SuperCoolCompany
-import Dumbass3
+from somewhatCoolCompany import SomewhatCoolCompany
 
 def build_specification():
     number_of_month = 12
@@ -10,7 +10,7 @@ def build_specification():
         trades_per_occurrence=trades_per_auction,
         num_auctions=number_of_month, environment_files_path="../../resources")
     my_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
-    specifications_builder.add_company(Dumbass3.Dumbass3.Data(Dumbass3.Dumbass3, my_fleet, Dumbass3.Dumbass3.__name__))
+    specifications_builder.add_company(SomewhatCoolCompany.Data(SomewhatCoolCompany, my_fleet, SomewhatCoolCompany.__name__))
     arch_enemy_fleet = fleets.mixed_fleet(num_suezmax=1, num_aframax=1, num_vlcc=1)
     specifications_builder.add_company(
         companies.MyArchEnemy.Data(
