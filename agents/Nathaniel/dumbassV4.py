@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from typing import List, Tuple, Dict
+from typing import Dict, List, Tuple
 
 from mable.cargo_bidding import TradingCompany
 from mable.extensions.fuel_emissions import VesselWithEngine
-from mable.shipping_market import Trade, Contract, AuctionLedger
+from mable.shipping_market import AuctionLedger, Contract, Trade
 from mable.simulation_space.universe import Location, OnJourney
-from mable.transport_operation import Bid, Vessel, ScheduleProposal
+from mable.transport_operation import Bid, ScheduleProposal, Vessel
 from mable.transportation_scheduling import Schedule
 
 
@@ -15,8 +15,10 @@ def fmt_location(location: Location | OnJourney) -> str:
         return f"DST: ({location.destination.x}, {location.destination.y})"
     return f"{location.name}: ({location.x}, {location.y})"
 
+
 def fmt_trade(trade: Trade) -> str:
     return f"[{fmt_location(trade.origin_port)}] => [{fmt_location(trade.destination_port)}]"
+
 
 def fmt_vessel(vessel: Vessel) -> str:
     return f"[{vessel.name} @ {fmt_location(vessel.location)}]"
@@ -36,7 +38,7 @@ class CompetitorData:
 
 
 # ------------------------[COMPANY]------------------------
-class Dumbass3(TradingCompany):
+class Dumbass4(TradingCompany):
     """
     contains
      1) An adaptive profit factor (updates after auctions).
@@ -66,12 +68,7 @@ class Dumbass3(TradingCompany):
 
         self.initialised = True
 
-    def inform(
-        self,
-        trades: List[Trade],
-        *args, 
-        **kwargs
-    ) -> List[Bid]:
+    def inform(self, trades: List[Trade], *args, **kwargs) -> List[Bid]:
         """
         Called by MABLE when a new auction (set of trades) starts.
         We do a late initialization here if needed, then let the parent inform.
@@ -94,8 +91,8 @@ class Dumbass3(TradingCompany):
         self,
         contracts: List[Contract],
         auction_ledger: AuctionLedger | None = None,
-        *args, 
-        **kwargs
+        *args,
+        **kwargs,
     ) -> None:
         """
         Called by MABLE at the end of an auction. We:
@@ -108,7 +105,7 @@ class Dumbass3(TradingCompany):
 
         for vessel in self.fleet:
             schedule = schedules[vessel].get_simple_schedule()
-            trades_str = ','.join([f"[{x[0]}, {fmt_trade(x[1])}]" for x in schedule])
+            trades_str = ",".join([f"[{x[0]}, {fmt_trade(x[1])}]" for x in schedule])
             if len(trades_str) == 0:
                 trades_str = "None"
             self.log(f"\t{fmt_vessel(vessel)}: {trades_str}")
@@ -139,10 +136,7 @@ class Dumbass3(TradingCompany):
         heat_ratio = (max_time - min(current_t, max_time)) / max_time
         return max(heat_ratio, min_heat)
 
-    def propose_schedules(
-        self,
-        trades: List[Trade]
-    ) -> ScheduleProposal:
+    def propose_schedules(self, trades: List[Trade]) -> ScheduleProposal:
         """
         MABLE calls this to ask: "How do you plan to schedule these trades,
         and how much will you bid for each one?"
@@ -158,7 +152,9 @@ class Dumbass3(TradingCompany):
 
         # If the auction is large (say > 8 trades), do a simpler approach to avoid recursion blow-up
         if len(trades) > 8:
-            proposal = self._schedule_larger_auctions(trades, schedules, scheduled_trades, costs)
+            proposal = self._schedule_larger_auctions(
+                trades, schedules, scheduled_trades, costs
+            )
         else:
             # Otherwise, do the existing recursive approach
             proposal = self._propose_schedules(
@@ -166,7 +162,7 @@ class Dumbass3(TradingCompany):
                 self.predict_competitor_bids(trades),
                 schedules,
                 scheduled_trades,
-                costs
+                costs,
             )
 
         # `proposal` is a ScheduleProposal. We can record how many bids we placed:
@@ -178,7 +174,7 @@ class Dumbass3(TradingCompany):
         trades: List[Trade],
         schedules: Dict[Vessel, Schedule],
         scheduled_trades: Dict[Vessel, List[Trade]],
-        costs: Dict[Trade, float]
+        costs: Dict[Trade, float],
     ) -> ScheduleProposal:
         """
         A simpler, non-recursive method for bigger auctions:
@@ -204,7 +200,7 @@ class Dumbass3(TradingCompany):
         combos.sort(key=lambda x: x[3], reverse=True)
 
         assigned_trades = set()
-        for (trade, vessel, cost, profit) in combos:
+        for trade, vessel, cost, profit in combos:
             if trade not in assigned_trades:
                 # Try to schedule
                 new_sch = schedules[vessel].copy()
@@ -223,11 +219,12 @@ class Dumbass3(TradingCompany):
         competitor_bids: Dict[Trade, float],
         schedules: Dict[Vessel, Schedule],
         scheduled_trades: Dict[Vessel, List[Trade]],
-        costs: Dict[Trade, float]
+        costs: Dict[Trade, float],
     ) -> ScheduleProposal:
         """
         Original recursive approach for smaller auctions, with minimal changes.
         """
+
         @dataclass
         class Data:
             trade: Trade
@@ -255,9 +252,13 @@ class Dumbass3(TradingCompany):
                     continue
 
                 if profit > 0:
-                    predicted_profits.append(Data(trade, vessel, new_schedule, cost, profit))
+                    predicted_profits.append(
+                        Data(trade, vessel, new_schedule, cost, profit)
+                    )
                 else:
-                    predicted_loss.append(Data(trade, vessel, new_schedule, cost, profit))
+                    predicted_loss.append(
+                        Data(trade, vessel, new_schedule, cost, profit)
+                    )
 
         # If no profitable trades remain
         if len(predicted_profits) == 0:
@@ -287,18 +288,14 @@ class Dumbass3(TradingCompany):
 
         # Recurse
         return self._propose_schedules(
-            trades,
-            competitor_bids,
-            schedules,
-            scheduled_trades,
-            costs
+            trades, competitor_bids, schedules, scheduled_trades, costs
         )
 
     def make_bids(
         self,
         schedules: Dict[Vessel, Schedule],
         scheduled_trades: Dict[Vessel, List[Trade]],
-        costs: Dict[Trade, float]
+        costs: Dict[Trade, float],
     ) -> ScheduleProposal:
         """
         Final step: turn assigned trades & costs into a ScheduleProposal.
@@ -307,25 +304,16 @@ class Dumbass3(TradingCompany):
         return ScheduleProposal(
             schedules,
             sum(scheduled_trades.values(), []),
-            {
-                trade: (cost * self.profit_factor)
-                for trade, cost in costs.items()
-            }
+            {trade: (cost * self.profit_factor) for trade, cost in costs.items()},
         )
 
-    def predict_competitor_bids(
-        self,
-        trades: List[Trade]
-    ) -> Dict[Trade, float]:
+    def predict_competitor_bids(self, trades: List[Trade]) -> Dict[Trade, float]:
         """
         For each trade, guess the lowest competitor bid.
         """
         return {trade: self._predict_competitor_bids(trade) for trade in trades}
 
-    def _predict_competitor_bids(
-        self,
-        trade: Trade
-    ) -> float:
+    def _predict_competitor_bids(self, trade: Trade) -> float:
         all_predicted_bids: List[float] = []
         for competitor, cdata in self.competitors.items():
             for vessel in competitor.fleet:
@@ -337,16 +325,12 @@ class Dumbass3(TradingCompany):
             return 999999.0
         return min(all_predicted_bids)
 
-    def schedule(
-        self,
-        contracts: List[Contract]
-    ) -> Dict[Vessel, Schedule]:
+    def schedule(self, contracts: List[Contract]) -> Dict[Vessel, Schedule]:
         """
         Min-cost scheduler for contracts we actually won.
         """
         return self._schedule(
-            {vessel: vessel.schedule.copy() for vessel in self.fleet},
-            contracts
+            {vessel: vessel.schedule.copy() for vessel in self.fleet}, contracts
         )
 
     def _schedule(
@@ -366,13 +350,17 @@ class Dumbass3(TradingCompany):
         # find the assignment with the shortest completion time
         shortest = None
         for vessel, current_schedule in schedules.items():
-            for schedule_option in Dumbass3.generate_options(current_contract.trade, current_schedule):
+            for schedule_option in Dumbass3.generate_options(
+                current_contract.trade, current_schedule
+            ):
                 completion_time = schedule_option.completion_time()
                 if shortest is None or completion_time < shortest[2]:
                     shortest = (vessel, schedule_option, completion_time)
 
         if shortest is None:
-            self.log(f"could not allocate contract: {fmt_trade(current_contract.trade)}")
+            self.log(
+                f"could not allocate contract: {fmt_trade(current_contract.trade)}"
+            )
         else:
             schedules[shortest[0]] = shortest[1]
 
@@ -411,13 +399,16 @@ class Dumbass3(TradingCompany):
 
     def trade_cost_with_reloc(self, vessel: VesselWithEngine, trade: Trade):
         """
-        Cost = direct cost of the trade + relocation from vessel's end location 
+        Cost = direct cost of the trade + relocation from vessel's end location
         to the trade's destination (our original approach).
         """
-        return (self.trade_cost(vessel, trade)
-                + self.p2p_cost(Dumbass3.get_end_location(vessel), trade.destination_port, vessel))
+        return self.trade_cost(vessel, trade) + self.p2p_cost(
+            Dumbass3.get_end_location(vessel), trade.destination_port, vessel
+        )
 
-    def p2p_cost(self, start: Location, end: Location, vessel: VesselWithEngine) -> float:
+    def p2p_cost(
+        self, start: Location, end: Location, vessel: VesselWithEngine
+    ) -> float:
         """
         Fuel cost to travel from 'start' to 'end'.
         """
